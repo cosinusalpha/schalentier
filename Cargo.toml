@@ -4,18 +4,22 @@ version = "0.1.0"
 edition = "2021"
 description = "A cross-platform package and tool manager with configuration sync"
 license = "MIT"
-repository = "https://github.com/user/schalentier"
+repository = "https://github.com/cosinusalpha/schalentier"
+homepage = "https://github.com/cosinusalpha/schalentier"
+keywords = ["cli", "package-manager", "dotfiles", "tools", "sync"]
+categories = ["command-line-utilities", "development-tools"]
 
 [dependencies]
 # CLI
 clap = { version = "4", features = ["derive"] }
+clap_complete = "4"
 
 # Async runtime
 tokio = { version = "1", features = ["full"] }
 
 # Error handling
 anyhow = "1"
-thiserror = "1"
+thiserror = "2"
 
 # Logging
 tracing = "0.1"
@@ -24,10 +28,12 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 # Serialization
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-toml = "0.8"
+serde_yaml = "0.9"
+toml = "0.9"
 
-# HTTP client (for downloads)
-reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
+# HTTP client (for downloads) - using rustls with aws-lc-rs crypto
+# Requires C compiler at build time, but produces static binary with no runtime deps
+reqwest = { version = "0.13", default-features = false, features = ["json", "rustls", "http2", "charset"] }
 
 # Async utilities
 async-trait = "0.1"
@@ -37,11 +43,25 @@ futures-util = "0.3"
 urlencoding = "2"
 
 # Directories
-dirs = "5"
+dirs = "6"
+
+# Archive extraction (pure Rust only - no C dependencies)
+flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
+tar = "0.4"
+zip = { version = "7", default-features = false, features = ["deflate"] }
+# Note: bzip2 and xz support removed to avoid C dependencies
+# Most modern releases use .tar.gz or .zip anyway
+
+# Tool detection
+which = "8"
+
+# Unix utilities
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
 
 # Terminal UI (Phase 6)
-# indicatif = "0.17"
-# inquire = "0.7"
+indicatif = "0.18"
+inquire = "0.9"
 
 [dev-dependencies]
 tempfile = "3"

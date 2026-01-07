@@ -7,6 +7,7 @@ use tracing::{debug, info};
 const STATE_FILE_NAME: &str = "local_state.json";
 const CONFIG_FILE_NAME: &str = "schalentier.toml";
 const DATA_DIR_NAME: &str = ".schalentier";
+const CONFIG_DIR_NAME: &str = ".config/schalentier";
 
 /// Get the default data directory (~/.schalentier)
 pub fn default_data_dir() -> Result<PathBuf> {
@@ -16,12 +17,30 @@ pub fn default_data_dir() -> Result<PathBuf> {
     Ok(home.join(DATA_DIR_NAME))
 }
 
+/// Get the config directory (~/.config/schalentier)
+/// This is the directory that can be synced via git
+pub fn config_dir() -> Result<PathBuf> {
+    let home = dirs::home_dir().ok_or_else(|| {
+        SchalentierError::Config("Could not determine home directory".to_string())
+    })?;
+    let dir = home.join(CONFIG_DIR_NAME);
+
+    // Create if it doesn't exist
+    if !dir.exists() {
+        std::fs::create_dir_all(&dir)
+            .with_context(|| format!("Failed to create config directory: {}", dir.display()))?;
+    }
+
+    Ok(dir)
+}
+
 /// Get the path to the local state file
 pub fn state_file_path(data_dir: &Path) -> PathBuf {
     data_dir.join(STATE_FILE_NAME)
 }
 
-/// Get the path to the config file in the current directory or home
+/// Get the path to the config file
+/// Priority: current directory > ~/.config/schalentier/ > ~/
 pub fn config_file_path() -> PathBuf {
     // First check current directory
     let local_config = PathBuf::from(CONFIG_FILE_NAME);
@@ -29,7 +48,15 @@ pub fn config_file_path() -> PathBuf {
         return local_config;
     }
 
-    // Fall back to home directory
+    // Check config directory (~/.config/schalentier/)
+    if let Ok(cfg_dir) = config_dir() {
+        let cfg_path = cfg_dir.join(CONFIG_FILE_NAME);
+        if cfg_path.exists() {
+            return cfg_path;
+        }
+    }
+
+    // Fall back to home directory (legacy location)
     if let Some(home) = dirs::home_dir() {
         let home_config = home.join(CONFIG_FILE_NAME);
         if home_config.exists() {
@@ -37,7 +64,12 @@ pub fn config_file_path() -> PathBuf {
         }
     }
 
-    // Default to current directory (will be created if needed)
+    // Default to config directory (will be created if needed)
+    if let Ok(cfg_dir) = config_dir() {
+        return cfg_dir.join(CONFIG_FILE_NAME);
+    }
+
+    // Ultimate fallback to current directory
     local_config
 }
 

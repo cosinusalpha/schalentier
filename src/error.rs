@@ -48,6 +48,12 @@ pub enum SchalentierError {
 
     #[error("Merge conflict: {0}")]
     MergeConflict(String),
+
+    #[error("Provider not available: {0}")]
+    ProviderNotAvailable(String),
+
+    #[error("Parse error: {0}")]
+    ParseError(String),
 }
 
 /// Result type alias for Schalentier operations
