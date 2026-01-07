@@ -1,9 +1,10 @@
+use crate::archive;
 use crate::config::LocalState;
 use crate::error::{Result, SchalentierError};
 use crate::state::default_data_dir;
 use anyhow::Context;
 use std::path::{Path, PathBuf};
-use tracing::{debug, info, warn};
+use tracing::{debug, info};
 
 /// Supported CPU architectures
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -179,6 +180,10 @@ pub struct Bootstrap {
     paths: BootstrapPaths,
     arch: Arch,
     os: Os,
+    /// Whether to install uv (default: true)
+    install_uv: bool,
+    /// Whether to install conda/miniforge (default: true)
+    install_conda: bool,
 }
 
 impl Bootstrap {
@@ -187,7 +192,13 @@ impl Bootstrap {
         let arch = get_arch()?;
         let os = get_os()?;
 
-        Ok(Self { paths, arch, os })
+        Ok(Self {
+            paths,
+            arch,
+            os,
+            install_uv: true,
+            install_conda: true,
+        })
     }
 
     pub fn with_data_dir(data_dir: PathBuf) -> Result<Self> {
@@ -195,7 +206,23 @@ impl Bootstrap {
         let arch = get_arch()?;
         let os = get_os()?;
 
-        Ok(Self { paths, arch, os })
+        Ok(Self {
+            paths,
+            arch,
+            os,
+            install_uv: true,
+            install_conda: true,
+        })
+    }
+
+    /// Set whether to install uv
+    pub fn set_install_uv(&mut self, install: bool) {
+        self.install_uv = install;
+    }
+
+    /// Set whether to install conda/miniforge
+    pub fn set_install_conda(&mut self, install: bool) {
+        self.install_conda = install;
     }
 
     /// Run the full bootstrap process
@@ -204,15 +231,19 @@ impl Bootstrap {
         self.paths.ensure_dirs()?;
 
         // Install uv (Python package manager)
-        if !state.bootstrap.uv_installed {
-            self.install_uv(state).await?;
+        if self.install_uv && !state.bootstrap.uv_installed {
+            self.install_uv_component(state).await?;
+        } else if !self.install_uv {
+            debug!("uv installation skipped by user");
         } else {
             debug!("uv already installed, skipping");
         }
 
         // Install conda/miniforge
-        if !state.bootstrap.conda_installed {
+        if self.install_conda && !state.bootstrap.conda_installed {
             self.install_miniforge(state).await?;
+        } else if !self.install_conda {
+            debug!("Conda installation skipped by user");
         } else {
             debug!("Conda already installed, skipping");
         }
@@ -223,7 +254,7 @@ impl Bootstrap {
     }
 
     /// Install uv
-    async fn install_uv(&self, state: &mut LocalState) -> Result<()> {
+    async fn install_uv_component(&self, state: &mut LocalState) -> Result<()> {
         info!("Installing uv...");
 
         let url = uv_url(self.arch, self.os)?;
@@ -232,18 +263,58 @@ impl Bootstrap {
 
         download_file(&url, &archive_path).await?;
 
-        // Extract and install
-        // Note: Actual extraction depends on archive type (.tar.gz vs .zip)
-        // This is platform-specific and would need proper implementation
-        let uv_bin = self.paths.bin_dir.join(if self.os == Os::Windows {
+        // Determine the binary name
+        let uv_binary_name = if self.os == Os::Windows {
             "uv.exe"
         } else {
             "uv"
-        });
+        };
+        let uv_bin = self.paths.bin_dir.join(uv_binary_name);
 
-        // TODO: Extract archive to bin_dir
-        // For now, just mark the download location
-        warn!("uv extraction not yet implemented - archive downloaded to {}", archive_path.display());
+        // Extract the archive
+        let extract_dir = self.paths.downloads_dir.join("uv-extract");
+        if extract_dir.exists() {
+            std::fs::remove_dir_all(&extract_dir)?;
+        }
+
+        info!("Extracting uv archive...");
+        let extracted_files = archive::extract(&archive_path, &extract_dir)?;
+
+        // Find the uv binary in extracted files
+        let source_binary = archive::find_binary(&extracted_files, "uv")
+            .or_else(|| {
+                // uv releases often have the binary inside a directory like "uv-x86_64-unknown-linux-musl"
+                archive::find_executables(&extracted_files)
+                    .into_iter()
+                    .find(|p| {
+                        p.file_name()
+                            .and_then(|n| n.to_str())
+                            .map(|n| n.starts_with("uv"))
+                            .unwrap_or(false)
+                    })
+            })
+            .ok_or_else(|| {
+                SchalentierError::BootstrapFailed(format!(
+                    "Could not find uv binary in extracted files. Found: {:?}",
+                    extracted_files.iter().filter_map(|p| p.file_name()).collect::<Vec<_>>()
+                ))
+            })?;
+
+        // Copy to bin directory
+        info!("Installing uv to {}", uv_bin.display());
+        std::fs::copy(&source_binary, &uv_bin)
+            .with_context(|| format!("Failed to copy uv binary to {}", uv_bin.display()))?;
+
+        // Set executable permission on Unix
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&uv_bin, std::fs::Permissions::from_mode(0o755))?;
+        }
+
+        // Cleanup
+        let _ = std::fs::remove_dir_all(&extract_dir);
+        let _ = std::fs::remove_file(&archive_path);
 
         state.bootstrap.uv_installed = true;
         state.bootstrap.uv_path = Some(uv_bin);
@@ -262,13 +333,69 @@ impl Bootstrap {
         download_file(&url, &installer_path).await?;
 
         // Run installer in batch mode
-        // Note: This is platform-specific
-        // Linux/macOS: bash installer.sh -b -p /path/to/conda
-        // Windows: installer.exe /S /D=/path/to/conda
-        warn!(
-            "Miniforge installation not yet implemented - installer downloaded to {}",
-            installer_path.display()
-        );
+        match self.os {
+            Os::Linux | Os::MacOS => {
+                // Set executable permission
+                #[cfg(unix)]
+                {
+                    use std::os::unix::fs::PermissionsExt;
+                    std::fs::set_permissions(&installer_path, std::fs::Permissions::from_mode(0o755))?;
+                }
+
+                info!("Running Miniforge installer in batch mode...");
+                let status = std::process::Command::new("bash")
+                    .arg(&installer_path)
+                    .arg("-b") // batch mode (no prompts)
+                    .arg("-p")
+                    .arg(&self.paths.conda_dir)
+                    .status()
+                    .with_context(|| "Failed to run Miniforge installer")?;
+
+                if !status.success() {
+                    return Err(SchalentierError::BootstrapFailed(
+                        format!("Miniforge installer failed with exit code: {:?}", status.code())
+                    ).into());
+                }
+
+                // Verify conda was installed
+                let conda_bin = self.paths.conda_dir.join("bin").join("conda");
+                if !conda_bin.exists() {
+                    return Err(SchalentierError::BootstrapFailed(
+                        format!("Miniforge installed but conda not found at {}", conda_bin.display())
+                    ).into());
+                }
+
+                info!("Miniforge installed successfully to {}", self.paths.conda_dir.display());
+            }
+            Os::Windows => {
+                // Windows uses .exe installer with different arguments
+                info!("Running Miniforge installer in silent mode...");
+                let status = std::process::Command::new(&installer_path)
+                    .arg("/S") // silent mode
+                    .arg(format!("/D={}", self.paths.conda_dir.display()))
+                    .status()
+                    .with_context(|| "Failed to run Miniforge installer")?;
+
+                if !status.success() {
+                    return Err(SchalentierError::BootstrapFailed(
+                        format!("Miniforge installer failed with exit code: {:?}", status.code())
+                    ).into());
+                }
+
+                // Verify conda was installed
+                let conda_bin = self.paths.conda_dir.join("Scripts").join("conda.exe");
+                if !conda_bin.exists() {
+                    return Err(SchalentierError::BootstrapFailed(
+                        format!("Miniforge installed but conda not found at {}", conda_bin.display())
+                    ).into());
+                }
+
+                info!("Miniforge installed successfully to {}", self.paths.conda_dir.display());
+            }
+        }
+
+        // Cleanup installer
+        let _ = std::fs::remove_file(&installer_path);
 
         state.bootstrap.conda_installed = true;
         state.bootstrap.conda_path = Some(self.paths.conda_dir.clone());

@@ -11,6 +11,7 @@ pub enum Provider {
     Cargo,
     Binary,
     Uv,
+    Brew,
 }
 
 impl std::fmt::Display for Provider {
@@ -21,6 +22,7 @@ impl std::fmt::Display for Provider {
             Provider::Cargo => write!(f, "cargo"),
             Provider::Binary => write!(f, "binary"),
             Provider::Uv => write!(f, "uv"),
+            Provider::Brew => write!(f, "brew"),
         }
     }
 }
@@ -51,6 +53,10 @@ pub struct SchalentierConfig {
     /// Sync configuration
     #[serde(default)]
     pub sync: SyncConfig,
+
+    /// Dotfiles to manage (key = file path, value = settings)
+    #[serde(default)]
+    pub dotfiles: HashMap<String, toml::Value>,
 }
 
 impl Default for SchalentierConfig {
@@ -59,6 +65,7 @@ impl Default for SchalentierConfig {
             settings: Settings::default(),
             tools: HashMap::new(),
             sync: SyncConfig::default(),
+            dotfiles: HashMap::new(),
         }
     }
 }
@@ -80,11 +87,12 @@ pub struct Settings {
 
 fn default_provider_priority() -> Vec<Provider> {
     vec![
-        Provider::System,
-        Provider::Conda,
-        Provider::Cargo,
-        Provider::Binary,
-        Provider::Uv,
+        Provider::Binary,  // Fastest, no dependencies
+        Provider::Cargo,   // Rust ecosystem
+        Provider::Brew,    // Cross-platform package manager
+        Provider::Conda,   // Python/scientific packages
+        Provider::Uv,      // Python tools
+        Provider::System,  // OS package manager (requires sudo)
     ]
 }
 
@@ -250,8 +258,10 @@ mod tests {
     #[test]
     fn test_default_provider_priority() {
         let settings = Settings::default();
-        assert_eq!(settings.provider_priority[0], Provider::System);
-        assert_eq!(settings.provider_priority.len(), 5);
+        assert_eq!(settings.provider_priority[0], Provider::Binary);
+        assert_eq!(settings.provider_priority.len(), 6);
+        // Binary first (fastest), System last (requires sudo)
+        assert_eq!(settings.provider_priority.last().unwrap(), &Provider::System);
     }
 
     #[test]

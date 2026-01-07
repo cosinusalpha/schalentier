@@ -1,4 +1,5 @@
 use super::{InstallResult, Installer, SearchResult};
+use crate::archive::{self, ArchiveFormat};
 use crate::bootstrap::{Arch, Os};
 use crate::config::Provider;
 use crate::error::{Result, SchalentierError};
@@ -154,7 +155,7 @@ impl BinaryProvider {
 
         let extension = match self.os {
             Os::Windows => vec![".zip", ".exe", ".msi"],
-            _ => vec![".tar.gz", ".tgz", ".tar.xz", ".tar.bz2", ".zip"],
+            _ => vec![".tar.gz", ".tgz", ".zip"],
         };
 
         // Score each asset
@@ -204,6 +205,81 @@ impl BinaryProvider {
 
         scored_assets.sort_by(|a, b| b.1.cmp(&a.1));
         scored_assets.first().map(|(asset, _)| *asset)
+    }
+
+    /// Guess the binary name based on the package name
+    fn guess_binary_name(&self, query: &str, repo_name: &str) -> String {
+        // Common patterns:
+        // ripgrep -> rg
+        // fd-find -> fd
+        // bat -> bat
+        let known_mappings = [
+            ("ripgrep", "rg"),
+            ("fd-find", "fd"),
+            ("delta", "delta"),
+            ("bat", "bat"),
+            ("exa", "exa"),
+            ("eza", "eza"),
+            ("zoxide", "zoxide"),
+            ("starship", "starship"),
+            ("tokei", "tokei"),
+            ("hyperfine", "hyperfine"),
+            ("procs", "procs"),
+            ("dust", "dust"),
+            ("bottom", "btm"),
+            ("gitui", "gitui"),
+            ("lazygit", "lazygit"),
+        ];
+
+        for (pkg, bin) in known_mappings {
+            if query.to_lowercase() == pkg || repo_name.to_lowercase() == pkg {
+                return bin.to_string();
+            }
+        }
+
+        // Default: use the query name
+        query.to_lowercase()
+    }
+
+    /// Find the binary in extracted files
+    fn find_binary_in_extracted(
+        &self,
+        files: &[PathBuf],
+        binary_name: &str,
+        fallback_name: &str,
+    ) -> Option<PathBuf> {
+        // Try the archive's find_binary function first
+        if let Some(path) = archive::find_binary(files, binary_name) {
+            return Some(path);
+        }
+
+        // Try fallback name
+        if binary_name != fallback_name {
+            if let Some(path) = archive::find_binary(files, fallback_name) {
+                return Some(path);
+            }
+        }
+
+        // Try to find any executable
+        let executables = archive::find_executables(files);
+        if executables.len() == 1 {
+            // If there's only one executable, use it
+            return Some(executables[0].clone());
+        }
+
+        // Try to find an executable that matches the name pattern
+        for exe in &executables {
+            if let Some(name) = exe.file_name().and_then(|s| s.to_str()) {
+                let name_lower = name.to_lowercase();
+                if name_lower.contains(&binary_name.to_lowercase())
+                    || name_lower.contains(&fallback_name.to_lowercase())
+                {
+                    return Some(exe.clone());
+                }
+            }
+        }
+
+        None
     }
 }
 
@@ -284,17 +360,18 @@ impl Installer for BinaryProvider {
             asset.size
         );
 
-        // Download the asset
-        let bin_dir = self.bin_dir.clone().unwrap_or_else(|| {
-            dirs::home_dir()
-                .unwrap_or_default()
-                .join(".schalentier")
-                .join("bin")
-        });
+        // Setup directories
+        let data_dir = dirs::home_dir()
+            .unwrap_or_default()
+            .join(".schalentier");
+
+        let bin_dir = self.bin_dir.clone().unwrap_or_else(|| data_dir.join("bin"));
+        let downloads_dir = data_dir.join("downloads");
 
         std::fs::create_dir_all(&bin_dir)?;
+        std::fs::create_dir_all(&downloads_dir)?;
 
-        let download_path = bin_dir.join(&asset.name);
+        let download_path = downloads_dir.join(&asset.name);
         info!("Downloading to {}", download_path.display());
 
         let response = self
@@ -306,20 +383,92 @@ impl Installer for BinaryProvider {
         let bytes = response.bytes().await?;
         std::fs::write(&download_path, &bytes)?;
 
-        // TODO: Extract archive and install binary
-        // For now, just mark the download location
-        warn!(
-            "Asset downloaded but extraction not yet implemented. Archive at: {}",
-            download_path.display()
-        );
+        // Determine the binary name (could be different from repo name)
+        let binary_name = self.guess_binary_name(name, &repo.name);
+
+        // Check if this is an archive or a direct binary
+        let final_binary_path = if let Some(format) = ArchiveFormat::from_path(&download_path) {
+            // It's an archive, extract it
+            let extract_dir = downloads_dir.join(format!("{}-extract", name));
+            if extract_dir.exists() {
+                std::fs::remove_dir_all(&extract_dir)?;
+            }
+
+            info!("Extracting {:?} archive...", format);
+            let extracted_files = archive::extract(&download_path, &extract_dir)?;
+
+            // Find the binary in extracted files
+            let binary_path = self
+                .find_binary_in_extracted(&extracted_files, &binary_name, name)
+                .ok_or_else(|| SchalentierError::InstallFailed {
+                    package: name.to_string(),
+                    reason: format!(
+                        "Could not find binary '{}' in extracted files. Found: {:?}",
+                        binary_name,
+                        extracted_files.iter().filter_map(|p| p.file_name()).collect::<Vec<_>>()
+                    ),
+                })?;
+
+            // Copy to bin directory
+            let dest_name = if self.os == Os::Windows && !binary_name.ends_with(".exe") {
+                format!("{}.exe", binary_name)
+            } else {
+                binary_name.clone()
+            };
+            let dest_path = bin_dir.join(&dest_name);
+
+            info!("Installing {} to {}", binary_path.display(), dest_path.display());
+            std::fs::copy(&binary_path, &dest_path)?;
+
+            // Set executable permission on Unix
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                std::fs::set_permissions(&dest_path, std::fs::Permissions::from_mode(0o755))?;
+            }
+
+            // Cleanup extract directory
+            let _ = std::fs::remove_dir_all(&extract_dir);
+
+            dest_path
+        } else {
+            // Direct binary download (e.g., .exe file)
+            let dest_name = if self.os == Os::Windows {
+                if asset.name.ends_with(".exe") {
+                    binary_name.clone()
+                } else {
+                    format!("{}.exe", binary_name)
+                }
+            } else {
+                binary_name.clone()
+            };
+            let dest_path = bin_dir.join(&dest_name);
+
+            info!("Installing {} to {}", download_path.display(), dest_path.display());
+            std::fs::copy(&download_path, &dest_path)?;
+
+            // Set executable permission on Unix
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                std::fs::set_permissions(&dest_path, std::fs::Permissions::from_mode(0o755))?;
+            }
+
+            dest_path
+        };
+
+        // Cleanup download
+        let _ = std::fs::remove_file(&download_path);
 
         Ok(InstallResult {
-            path: Some(download_path),
+            path: Some(final_binary_path.clone()),
             version: Some(release.tag_name),
             success: true,
             message: Some(format!(
-                "Downloaded {} from {}",
-                asset.name, repo.full_name
+                "Installed {} from {} to {}",
+                name,
+                repo.full_name,
+                final_binary_path.display()
             )),
         })
     }
