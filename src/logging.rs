@@ -15,20 +15,19 @@ pub fn init(verbose: bool) {
         "schalentier=info,warn"
     };
 
-    let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(default_filter));
+    let filter =
+        EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(default_filter));
 
-    let subscriber = tracing_subscriber::registry()
-        .with(filter)
-        .with(
-            fmt::layer()
-                .with_target(verbose)
-                .with_thread_ids(false)
-                .with_thread_names(false)
-                .with_file(verbose)
-                .with_line_number(verbose)
-                .with_ansi(true)
-                .compact(),
-        );
+    let subscriber = tracing_subscriber::registry().with(filter).with(
+        fmt::layer()
+            .with_target(verbose)
+            .with_thread_ids(false)
+            .with_thread_names(false)
+            .with_file(verbose)
+            .with_line_number(verbose)
+            .with_ansi(true)
+            .compact(),
+    );
 
     subscriber.init();
 }

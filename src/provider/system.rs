@@ -89,33 +89,63 @@ impl PackageManager {
     /// Build the install command arguments
     fn install_args(&self, package: &str) -> Vec<String> {
         match self {
-            PackageManager::Apt => vec!["install".to_string(), "-y".to_string(), package.to_string()],
-            PackageManager::Pacman => vec!["-S".to_string(), "--noconfirm".to_string(), package.to_string()],
-            PackageManager::Dnf => vec!["install".to_string(), "-y".to_string(), package.to_string()],
+            PackageManager::Apt => {
+                vec!["install".to_string(), "-y".to_string(), package.to_string()]
+            }
+            PackageManager::Pacman => vec![
+                "-S".to_string(),
+                "--noconfirm".to_string(),
+                package.to_string(),
+            ],
+            PackageManager::Dnf => {
+                vec!["install".to_string(), "-y".to_string(), package.to_string()]
+            }
             PackageManager::Apk => vec!["add".to_string(), package.to_string()],
-            PackageManager::Zypper => vec!["install".to_string(), "-y".to_string(), package.to_string()],
+            PackageManager::Zypper => {
+                vec!["install".to_string(), "-y".to_string(), package.to_string()]
+            }
         }
     }
 
     /// Build the uninstall command arguments
     fn uninstall_args(&self, package: &str) -> Vec<String> {
         match self {
-            PackageManager::Apt => vec!["remove".to_string(), "-y".to_string(), package.to_string()],
-            PackageManager::Pacman => vec!["-R".to_string(), "--noconfirm".to_string(), package.to_string()],
-            PackageManager::Dnf => vec!["remove".to_string(), "-y".to_string(), package.to_string()],
+            PackageManager::Apt => {
+                vec!["remove".to_string(), "-y".to_string(), package.to_string()]
+            }
+            PackageManager::Pacman => vec![
+                "-R".to_string(),
+                "--noconfirm".to_string(),
+                package.to_string(),
+            ],
+            PackageManager::Dnf => {
+                vec!["remove".to_string(), "-y".to_string(), package.to_string()]
+            }
             PackageManager::Apk => vec!["del".to_string(), package.to_string()],
-            PackageManager::Zypper => vec!["remove".to_string(), "-y".to_string(), package.to_string()],
+            PackageManager::Zypper => {
+                vec!["remove".to_string(), "-y".to_string(), package.to_string()]
+            }
         }
     }
 
     /// Check if a package is installed
     fn is_installed_args(&self, package: &str) -> Vec<String> {
         match self {
-            PackageManager::Apt => vec!["list".to_string(), "--installed".to_string(), package.to_string()],
+            PackageManager::Apt => vec![
+                "list".to_string(),
+                "--installed".to_string(),
+                package.to_string(),
+            ],
             PackageManager::Pacman => vec!["-Q".to_string(), package.to_string()],
-            PackageManager::Dnf => vec!["list".to_string(), "--installed".to_string(), package.to_string()],
+            PackageManager::Dnf => vec![
+                "list".to_string(),
+                "--installed".to_string(),
+                package.to_string(),
+            ],
             PackageManager::Apk => vec!["info".to_string(), "-e".to_string(), package.to_string()],
-            PackageManager::Zypper => vec!["search".to_string(), "-i".to_string(), package.to_string()],
+            PackageManager::Zypper => {
+                vec!["search".to_string(), "-i".to_string(), package.to_string()]
+            }
         }
     }
 
@@ -176,7 +206,11 @@ impl PackageManager {
                         }
                     } else if let Some(slash_idx) = line.find('/') {
                         // Package line
-                        let name = line[slash_idx + 1..].split_whitespace().next().unwrap_or("").to_string();
+                        let name = line[slash_idx + 1..]
+                            .split_whitespace()
+                            .next()
+                            .unwrap_or("")
+                            .to_string();
                         let version = line.split_whitespace().nth(1).map(|s| s.to_string());
                         current_name = Some(name);
                         current_version = version;
@@ -339,11 +373,11 @@ impl Installer for SystemProvider {
     }
 
     async fn search(&self, query: &str, limit: usize) -> Result<Vec<SearchResult>> {
-        let pm = self.package_manager.ok_or_else(|| {
-            SchalentierError::ProviderNotFound {
+        let pm = self
+            .package_manager
+            .ok_or_else(|| SchalentierError::ProviderNotFound {
                 provider: "system".to_string(),
-            }
-        })?;
+            })?;
 
         let args = pm.search_args(query);
         let output = Command::new(pm.command())
@@ -356,11 +390,11 @@ impl Installer for SystemProvider {
     }
 
     async fn install(&self, name: &str, _version: Option<&str>) -> Result<InstallResult> {
-        let pm = self.package_manager.ok_or_else(|| {
-            SchalentierError::ProviderNotFound {
+        let pm = self
+            .package_manager
+            .ok_or_else(|| SchalentierError::ProviderNotFound {
                 provider: "system".to_string(),
-            }
-        })?;
+            })?;
 
         info!("Installing {} via {}...", name, pm);
 
@@ -386,11 +420,9 @@ impl Installer for SystemProvider {
                 .status()
         };
 
-        let status = status.map_err(|e| {
-            SchalentierError::InstallFailed {
-                package: name.to_string(),
-                reason: format!("Failed to run {}: {}", pm.command(), e),
-            }
+        let status = status.map_err(|e| SchalentierError::InstallFailed {
+            package: name.to_string(),
+            reason: format!("Failed to run {}: {}", pm.command(), e),
         })?;
 
         if status.success() {
@@ -417,11 +449,11 @@ impl Installer for SystemProvider {
     }
 
     async fn uninstall(&self, name: &str) -> Result<()> {
-        let pm = self.package_manager.ok_or_else(|| {
-            SchalentierError::ProviderNotFound {
+        let pm = self
+            .package_manager
+            .ok_or_else(|| SchalentierError::ProviderNotFound {
                 provider: "system".to_string(),
-            }
-        })?;
+            })?;
 
         info!("Uninstalling {} via {}...", name, pm);
 
@@ -445,9 +477,8 @@ impl Installer for SystemProvider {
                 .status()
         };
 
-        let status = status.map_err(|e| {
-            SchalentierError::CommandFailed(format!("Uninstall failed: {}", e))
-        })?;
+        let status = status
+            .map_err(|e| SchalentierError::CommandFailed(format!("Uninstall failed: {}", e)))?;
 
         if status.success() {
             info!("{} uninstalled successfully", name);
@@ -462,11 +493,11 @@ impl Installer for SystemProvider {
     }
 
     async fn is_installed(&self, name: &str) -> Result<bool> {
-        let pm = self.package_manager.ok_or_else(|| {
-            SchalentierError::ProviderNotFound {
+        let pm = self
+            .package_manager
+            .ok_or_else(|| SchalentierError::ProviderNotFound {
                 provider: "system".to_string(),
-            }
-        })?;
+            })?;
 
         let args = pm.is_installed_args(name);
         let output = Command::new(pm.command())
@@ -478,44 +509,23 @@ impl Installer for SystemProvider {
     }
 
     async fn installed_version(&self, name: &str) -> Result<Option<String>> {
-        let pm = self.package_manager.ok_or_else(|| {
-            SchalentierError::ProviderNotFound {
+        let pm = self
+            .package_manager
+            .ok_or_else(|| SchalentierError::ProviderNotFound {
                 provider: "system".to_string(),
-            }
-        })?;
+            })?;
 
         // Get version using package manager specific commands
         let output = match pm {
-            PackageManager::Apt => {
-                Command::new("dpkg")
-                    .args(["-s", name])
-                    .output()
-            }
-            PackageManager::Pacman => {
-                Command::new("pacman")
-                    .args(["-Q", name])
-                    .output()
-            }
-            PackageManager::Dnf => {
-                Command::new("rpm")
-                    .args(["-q", name])
-                    .output()
-            }
-            PackageManager::Apk => {
-                Command::new("apk")
-                    .args(["info", name])
-                    .output()
-            }
-            PackageManager::Zypper => {
-                Command::new("rpm")
-                    .args(["-q", name])
-                    .output()
-            }
+            PackageManager::Apt => Command::new("dpkg").args(["-s", name]).output(),
+            PackageManager::Pacman => Command::new("pacman").args(["-Q", name]).output(),
+            PackageManager::Dnf => Command::new("rpm").args(["-q", name]).output(),
+            PackageManager::Apk => Command::new("apk").args(["info", name]).output(),
+            PackageManager::Zypper => Command::new("rpm").args(["-q", name]).output(),
         };
 
-        let output = output.map_err(|e| {
-            SchalentierError::CommandFailed(format!("Version check failed: {}", e))
-        })?;
+        let output = output
+            .map_err(|e| SchalentierError::CommandFailed(format!("Version check failed: {}", e)))?;
 
         if !output.status.success() {
             return Ok(None);
@@ -540,8 +550,8 @@ impl Installer for SystemProvider {
                 // Output is "package-version.arch"
                 let name_version = stdout.trim();
                 // Try to extract version after package name
-                if name_version.starts_with(name) {
-                    Some(name_version[name.len()..].trim_start_matches('-').to_string())
+                if let Some(stripped) = name_version.strip_prefix(name) {
+                    Some(stripped.trim_start_matches('-').to_string())
                 } else {
                     Some(name_version.to_string())
                 }
@@ -618,8 +628,14 @@ git-all.noarch : Meta-package to pull in all git tools
 
     #[test]
     fn test_install_args() {
-        assert!(PackageManager::Apt.install_args("git").contains(&"-y".to_string()));
-        assert!(PackageManager::Pacman.install_args("git").contains(&"--noconfirm".to_string()));
-        assert!(PackageManager::Dnf.install_args("git").contains(&"-y".to_string()));
+        assert!(PackageManager::Apt
+            .install_args("git")
+            .contains(&"-y".to_string()));
+        assert!(PackageManager::Pacman
+            .install_args("git")
+            .contains(&"--noconfirm".to_string()));
+        assert!(PackageManager::Dnf
+            .install_args("git")
+            .contains(&"-y".to_string()));
     }
 }

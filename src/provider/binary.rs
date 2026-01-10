@@ -172,7 +172,10 @@ impl BinaryProvider {
                 let mut score = 0u32;
 
                 // Check OS match
-                if os_keywords.iter().any(|kw| name.contains(&kw.to_lowercase())) {
+                if os_keywords
+                    .iter()
+                    .any(|kw| name.contains(&kw.to_lowercase()))
+                {
                     score += 10;
                 } else {
                     // No OS indicator - might be platform-agnostic or wrong
@@ -180,7 +183,10 @@ impl BinaryProvider {
                 }
 
                 // Check arch match
-                if arch_keywords.iter().any(|kw| name.contains(&kw.to_lowercase())) {
+                if arch_keywords
+                    .iter()
+                    .any(|kw| name.contains(&kw.to_lowercase()))
+                {
                     score += 10;
                 }
 
@@ -330,7 +336,7 @@ impl Installer for BinaryProvider {
         let repo = repos
             .into_iter()
             .find(|r| r.name.to_lowercase() == name.to_lowercase())
-            .or_else(|| None)
+            .or(None)
             .ok_or_else(|| SchalentierError::PackageNotFound {
                 package: name.to_string(),
             })?;
@@ -354,16 +360,10 @@ impl Installer for BinaryProvider {
             }
         })?;
 
-        info!(
-            "Found asset: {} ({} bytes)",
-            asset.name,
-            asset.size
-        );
+        info!("Found asset: {} ({} bytes)", asset.name, asset.size);
 
         // Setup directories
-        let data_dir = dirs::home_dir()
-            .unwrap_or_default()
-            .join(".schalentier");
+        let data_dir = dirs::home_dir().unwrap_or_default().join(".schalentier");
 
         let bin_dir = self.bin_dir.clone().unwrap_or_else(|| data_dir.join("bin"));
         let downloads_dir = data_dir.join("downloads");
@@ -374,11 +374,7 @@ impl Installer for BinaryProvider {
         let download_path = downloads_dir.join(&asset.name);
         info!("Downloading to {}", download_path.display());
 
-        let response = self
-            .client
-            .get(&asset.browser_download_url)
-            .send()
-            .await?;
+        let response = self.client.get(&asset.browser_download_url).send().await?;
 
         let bytes = response.bytes().await?;
         std::fs::write(&download_path, &bytes)?;
@@ -405,7 +401,10 @@ impl Installer for BinaryProvider {
                     reason: format!(
                         "Could not find binary '{}' in extracted files. Found: {:?}",
                         binary_name,
-                        extracted_files.iter().filter_map(|p| p.file_name()).collect::<Vec<_>>()
+                        extracted_files
+                            .iter()
+                            .filter_map(|p| p.file_name())
+                            .collect::<Vec<_>>()
                     ),
                 })?;
 
@@ -417,7 +416,11 @@ impl Installer for BinaryProvider {
             };
             let dest_path = bin_dir.join(&dest_name);
 
-            info!("Installing {} to {}", binary_path.display(), dest_path.display());
+            info!(
+                "Installing {} to {}",
+                binary_path.display(),
+                dest_path.display()
+            );
             std::fs::copy(&binary_path, &dest_path)?;
 
             // Set executable permission on Unix
@@ -444,7 +447,11 @@ impl Installer for BinaryProvider {
             };
             let dest_path = bin_dir.join(&dest_name);
 
-            info!("Installing {} to {}", download_path.display(), dest_path.display());
+            info!(
+                "Installing {} to {}",
+                download_path.display(),
+                dest_path.display()
+            );
             std::fs::copy(&download_path, &dest_path)?;
 
             // Set executable permission on Unix

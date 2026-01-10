@@ -82,12 +82,10 @@ impl CargoProvider {
 
         debug!("Searching crates.io: {}", url);
 
-        let response = self
-            .client
-            .get(&url)
-            .send()
-            .await
-            .map_err(|e| SchalentierError::Network(format!("Failed to search crates.io: {}", e)))?;
+        let response =
+            self.client.get(&url).send().await.map_err(|e| {
+                SchalentierError::Network(format!("Failed to search crates.io: {}", e))
+            })?;
 
         if !response.status().is_success() {
             return Err(SchalentierError::Network(format!(
@@ -272,10 +270,7 @@ impl Installer for CargoProvider {
         };
 
         // Try running with --version
-        let output = Command::new(&binary)
-            .arg("--version")
-            .output()
-            .ok();
+        let output = Command::new(&binary).arg("--version").output().ok();
 
         if let Some(output) = output {
             if output.status.success() {
@@ -283,7 +278,12 @@ impl Installer for CargoProvider {
                 // Parse version from output like "tool 1.2.3" or "tool version 1.2.3"
                 let version = stdout
                     .split_whitespace()
-                    .find(|s| s.chars().next().map(|c| c.is_ascii_digit()).unwrap_or(false))
+                    .find(|s| {
+                        s.chars()
+                            .next()
+                            .map(|c| c.is_ascii_digit())
+                            .unwrap_or(false)
+                    })
                     .map(|s| s.to_string());
                 return Ok(version);
             }
@@ -313,8 +313,7 @@ mod tests {
 
     #[test]
     fn test_bin_dir_custom() {
-        let provider = CargoProvider::new()
-            .with_install_root(PathBuf::from("/custom/root"));
+        let provider = CargoProvider::new().with_install_root(PathBuf::from("/custom/root"));
         let bin_dir = provider.bin_dir();
         assert_eq!(bin_dir, PathBuf::from("/custom/root/bin"));
     }

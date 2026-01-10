@@ -157,9 +157,7 @@ impl CondaProvider {
 
 impl Default for CondaProvider {
     fn default() -> Self {
-        let data_dir = dirs::home_dir()
-            .unwrap_or_default()
-            .join(".schalentier");
+        let data_dir = dirs::home_dir().unwrap_or_default().join(".schalentier");
         Self::new(data_dir)
     }
 }
@@ -352,7 +350,12 @@ impl Installer for CondaProvider {
                     let stdout = String::from_utf8_lossy(&output.stdout);
                     let version = stdout
                         .split_whitespace()
-                        .find(|s| s.chars().next().map(|c| c.is_ascii_digit()).unwrap_or(false))
+                        .find(|s| {
+                            s.chars()
+                                .next()
+                                .map(|c| c.is_ascii_digit())
+                                .unwrap_or(false)
+                        })
                         .map(|s| s.to_string());
                     return Ok(version);
                 }

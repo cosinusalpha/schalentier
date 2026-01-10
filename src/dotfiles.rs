@@ -102,7 +102,10 @@ impl DotfileManager {
 
             // Check for _content (replace mode) or _format override
             let (settings, content, final_format) = if let Some(table) = value.as_table() {
-                let content = table.get("_content").and_then(|v| v.as_str()).map(String::from);
+                let content = table
+                    .get("_content")
+                    .and_then(|v| v.as_str())
+                    .map(String::from);
                 let format_override = table.get("_format").and_then(|v| v.as_str());
 
                 let final_format = if let Some(fmt) = format_override {
@@ -387,12 +390,15 @@ fn merge_ini(current: Option<&str>, settings: &TomlValue) -> Result<String> {
         for line in content.lines() {
             let trimmed = line.trim();
             if trimmed.starts_with('[') && trimmed.ends_with(']') {
-                current_section = trimmed[1..trimmed.len()-1].to_string();
+                current_section = trimmed[1..trimmed.len() - 1].to_string();
                 sections.entry(current_section.clone()).or_default();
             } else if let Some(eq_pos) = trimmed.find('=') {
                 let key = trimmed[..eq_pos].trim().to_string();
-                let value = trimmed[eq_pos+1..].trim().to_string();
-                sections.entry(current_section.clone()).or_default().insert(key, value);
+                let value = trimmed[eq_pos + 1..].trim().to_string();
+                sections
+                    .entry(current_section.clone())
+                    .or_default()
+                    .insert(key, value);
             }
         }
     }
@@ -452,7 +458,7 @@ fn merge_keyvalue(current: Option<&str>, settings: &TomlValue) -> Result<String>
                 let key = trimmed[..eq_pos].trim().to_string();
                 // Handle export prefix
                 let key = key.strip_prefix("export ").unwrap_or(&key).to_string();
-                let value = trimmed[eq_pos+1..].trim().to_string();
+                let value = trimmed[eq_pos + 1..].trim().to_string();
                 if !entries.contains_key(&key) {
                     key_order.push(key.clone());
                 }
@@ -493,9 +499,9 @@ fn merge_keyvalue(current: Option<&str>, settings: &TomlValue) -> Result<String>
 
 /// Expand ~ to home directory
 fn expand_path(path: &str) -> PathBuf {
-    if path.starts_with("~/") {
+    if let Some(stripped) = path.strip_prefix("~/") {
         if let Some(home) = dirs::home_dir() {
-            return home.join(&path[2..]);
+            return home.join(stripped);
         }
     }
     PathBuf::from(path)
@@ -504,7 +510,11 @@ fn expand_path(path: &str) -> PathBuf {
 /// Get backup path for a file
 fn backup_path(path: &Path) -> PathBuf {
     let mut backup = path.to_path_buf();
-    let name = backup.file_name().unwrap_or_default().to_string_lossy().to_string();
+    let name = backup
+        .file_name()
+        .unwrap_or_default()
+        .to_string_lossy()
+        .to_string();
     backup.set_file_name(format!("{}.schalentier-backup", name));
     backup
 }
@@ -514,15 +524,11 @@ fn toml_to_json(toml: &TomlValue) -> JsonValue {
     match toml {
         TomlValue::String(s) => JsonValue::String(s.clone()),
         TomlValue::Integer(i) => JsonValue::Number((*i).into()),
-        TomlValue::Float(f) => {
-            serde_json::Number::from_f64(*f)
-                .map(JsonValue::Number)
-                .unwrap_or(JsonValue::Null)
-        }
+        TomlValue::Float(f) => serde_json::Number::from_f64(*f)
+            .map(JsonValue::Number)
+            .unwrap_or(JsonValue::Null),
         TomlValue::Boolean(b) => JsonValue::Bool(*b),
-        TomlValue::Array(arr) => {
-            JsonValue::Array(arr.iter().map(toml_to_json).collect())
-        }
+        TomlValue::Array(arr) => JsonValue::Array(arr.iter().map(toml_to_json).collect()),
         TomlValue::Table(table) => {
             let map: serde_json::Map<String, JsonValue> = table
                 .iter()
@@ -587,24 +593,51 @@ mod tests {
 
     #[test]
     fn test_format_detection() {
-        assert_eq!(ConfigFormat::detect(Path::new("test.json")), ConfigFormat::Json);
-        assert_eq!(ConfigFormat::detect(Path::new("test.toml")), ConfigFormat::Toml);
-        assert_eq!(ConfigFormat::detect(Path::new("test.yaml")), ConfigFormat::Yaml);
-        assert_eq!(ConfigFormat::detect(Path::new("test.yml")), ConfigFormat::Yaml);
-        assert_eq!(ConfigFormat::detect(Path::new("test.ini")), ConfigFormat::Ini);
-        assert_eq!(ConfigFormat::detect(Path::new(".env")), ConfigFormat::KeyValue);
-        assert_eq!(ConfigFormat::detect(Path::new(".gitconfig")), ConfigFormat::Ini);
-        assert_eq!(ConfigFormat::detect(Path::new("test.custom")), ConfigFormat::Unknown);
+        assert_eq!(
+            ConfigFormat::detect(Path::new("test.json")),
+            ConfigFormat::Json
+        );
+        assert_eq!(
+            ConfigFormat::detect(Path::new("test.toml")),
+            ConfigFormat::Toml
+        );
+        assert_eq!(
+            ConfigFormat::detect(Path::new("test.yaml")),
+            ConfigFormat::Yaml
+        );
+        assert_eq!(
+            ConfigFormat::detect(Path::new("test.yml")),
+            ConfigFormat::Yaml
+        );
+        assert_eq!(
+            ConfigFormat::detect(Path::new("test.ini")),
+            ConfigFormat::Ini
+        );
+        assert_eq!(
+            ConfigFormat::detect(Path::new(".env")),
+            ConfigFormat::KeyValue
+        );
+        assert_eq!(
+            ConfigFormat::detect(Path::new(".gitconfig")),
+            ConfigFormat::Ini
+        );
+        assert_eq!(
+            ConfigFormat::detect(Path::new("test.custom")),
+            ConfigFormat::Unknown
+        );
     }
 
     #[test]
     fn test_json_merge() {
         let current = r#"{"existing": "value", "nested": {"a": 1}}"#;
-        let settings: TomlValue = toml::from_str(r#"
+        let settings: TomlValue = toml::from_str(
+            r#"
             new_key = "new_value"
             [nested]
             b = 2
-        "#).unwrap();
+        "#,
+        )
+        .unwrap();
 
         let result = merge_json(Some(current), &settings).unwrap();
         let parsed: JsonValue = serde_json::from_str(&result).unwrap();
@@ -622,11 +655,14 @@ existing = "value"
 [section]
 a = 1
 "#;
-        let settings: TomlValue = toml::from_str(r#"
+        let settings: TomlValue = toml::from_str(
+            r#"
             new_key = "new_value"
             [section]
             b = 2
-        "#).unwrap();
+        "#,
+        )
+        .unwrap();
 
         let result = merge_toml(Some(current), &settings).unwrap();
         let parsed: TomlValue = toml::from_str(&result).unwrap();
@@ -640,10 +676,13 @@ a = 1
     #[test]
     fn test_keyvalue_merge() {
         let current = "EXISTING=value\nOTHER=123";
-        let settings: TomlValue = toml::from_str(r#"
+        let settings: TomlValue = toml::from_str(
+            r#"
             NEW_KEY = "new_value"
             EXISTING = "updated"
-        "#).unwrap();
+        "#,
+        )
+        .unwrap();
 
         let result = merge_keyvalue(Some(current), &settings).unwrap();
 

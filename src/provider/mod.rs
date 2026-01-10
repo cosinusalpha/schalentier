@@ -93,7 +93,9 @@ pub trait Installer: Send + Sync {
     async fn latest_version(&self, name: &str) -> Result<Option<String>> {
         let results = self.search(name, 5).await?;
         // Find exact match or best match
-        let exact = results.iter().find(|r| r.name == name || r.name.ends_with(&format!("/{}", name)));
+        let exact = results
+            .iter()
+            .find(|r| r.name == name || r.name.ends_with(&format!("/{}", name)));
         if let Some(result) = exact {
             return Ok(result.version.clone());
         }
@@ -208,7 +210,9 @@ impl ProviderRegistry {
         let mut clustered: Vec<_> = clusters.into_values().collect();
         clustered.sort_by(|a, b| {
             // Sort by provider count descending, then by name ascending
-            b.providers.len().cmp(&a.providers.len())
+            b.providers
+                .len()
+                .cmp(&a.providers.len())
                 .then_with(|| a.name.cmp(&b.name))
         });
 
@@ -293,11 +297,7 @@ impl ProviderRegistry {
                 continue;
             }
 
-            tracing::info!(
-                "Trying fallback provider {:?} for {}",
-                provider_type,
-                name
-            );
+            tracing::info!("Trying fallback provider {:?} for {}", provider_type, name);
             tried_providers.push(provider_type.clone());
 
             match provider.install(name, version).await {
@@ -310,11 +310,7 @@ impl ProviderRegistry {
                             preferred
                         );
                     } else {
-                        tracing::info!(
-                            "Installed {} via {:?}",
-                            name,
-                            provider_type
-                        );
+                        tracing::info!("Installed {} via {:?}", name, provider_type);
                     }
                     return Ok((result, provider_type));
                 }
@@ -327,12 +323,7 @@ impl ProviderRegistry {
                     );
                 }
                 Err(e) => {
-                    tracing::debug!(
-                        "Provider {:?} error for {}: {}",
-                        provider_type,
-                        name,
-                        e
-                    );
+                    tracing::debug!("Provider {:?} error for {}: {}", provider_type, name, e);
                 }
             }
         }
@@ -341,10 +332,7 @@ impl ProviderRegistry {
         use crate::error::SchalentierError;
         Err(SchalentierError::InstallFailed {
             package: name.to_string(),
-            reason: format!(
-                "All providers failed. Tried: {:?}",
-                tried_providers
-            ),
+            reason: format!("All providers failed. Tried: {:?}", tried_providers),
         }
         .into())
     }
@@ -357,7 +345,11 @@ impl Default for ProviderRegistry {
 }
 
 /// Create a default provider registry with all available providers
-pub fn create_default_registry(arch: Arch, os: Os, data_dir: std::path::PathBuf) -> ProviderRegistry {
+pub fn create_default_registry(
+    arch: Arch,
+    os: Os,
+    data_dir: std::path::PathBuf,
+) -> ProviderRegistry {
     let mut registry = ProviderRegistry::new();
 
     // Add Binary provider (GitHub releases) - always available
@@ -427,7 +419,9 @@ mod tests {
         registry.register(Box::new(MockProvider::new()));
 
         // No preferred provider - should use first available (MockProvider returns Binary)
-        let result = registry.install_with_fallback("test-package", None, None).await;
+        let result = registry
+            .install_with_fallback("test-package", None, None)
+            .await;
         assert!(result.is_ok());
 
         let (install_result, provider) = result.unwrap();
@@ -441,7 +435,9 @@ mod tests {
         registry.register(Box::new(MockProvider::new())); // Returns Binary provider type
 
         // Request Binary provider (matches MockProvider)
-        let result = registry.install_with_fallback("test-package", None, Some(Provider::Binary)).await;
+        let result = registry
+            .install_with_fallback("test-package", None, Some(Provider::Binary))
+            .await;
         assert!(result.is_ok());
 
         let (install_result, provider) = result.unwrap();
@@ -455,7 +451,9 @@ mod tests {
         registry.register(Box::new(MockProvider::new())); // Returns Binary provider type
 
         // Request Cargo provider (not registered), should fallback to Binary
-        let result = registry.install_with_fallback("test-package", None, Some(Provider::Cargo)).await;
+        let result = registry
+            .install_with_fallback("test-package", None, Some(Provider::Cargo))
+            .await;
         assert!(result.is_ok());
 
         let (install_result, provider) = result.unwrap();

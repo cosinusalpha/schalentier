@@ -129,8 +129,8 @@ impl LocalState {
         let content = std::fs::read_to_string(&state_path)
             .with_context(|| format!("Failed to read state file: {}", state_path.display()))?;
 
-        let state: LocalState = serde_json::from_str(&content)
-            .with_context(|| "Failed to parse state file")?;
+        let state: LocalState =
+            serde_json::from_str(&content).with_context(|| "Failed to parse state file")?;
 
         debug!("Loaded state with {} tools", state.tools.len());
         Ok(state)
@@ -149,8 +149,8 @@ impl LocalState {
         let state_path = state_file_path(data_dir);
         debug!("Saving state to: {}", state_path.display());
 
-        let content = serde_json::to_string_pretty(self)
-            .with_context(|| "Failed to serialize state")?;
+        let content =
+            serde_json::to_string_pretty(self).with_context(|| "Failed to serialize state")?;
 
         std::fs::write(&state_path, &content)
             .with_context(|| format!("Failed to write state file: {}", state_path.display()))?;
@@ -177,7 +177,10 @@ impl SchalentierConfig {
     /// Load configuration from a specific path
     pub fn load_from(path: &Path) -> Result<Self> {
         if !path.exists() {
-            debug!("Config file not found at {}, using defaults", path.display());
+            debug!(
+                "Config file not found at {}, using defaults",
+                path.display()
+            );
             return Ok(SchalentierConfig::default());
         }
 
@@ -202,8 +205,7 @@ impl SchalentierConfig {
     pub fn save_to(&self, path: &Path) -> Result<()> {
         debug!("Saving config to: {}", path.display());
 
-        let content = toml::to_string_pretty(self)
-            .with_context(|| "Failed to serialize config")?;
+        let content = toml::to_string_pretty(self).with_context(|| "Failed to serialize config")?;
 
         std::fs::write(path, &content)
             .with_context(|| format!("Failed to write config file: {}", path.display()))?;

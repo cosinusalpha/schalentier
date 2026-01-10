@@ -152,11 +152,7 @@ pub fn write_env_scripts(data_dir: &Path) -> Result<()> {
     debug!("Writing environment scripts to {}", data_dir.display());
 
     // Write all shell scripts
-    for shell in [
-        ShellType::Bash,
-        ShellType::Fish,
-        ShellType::PowerShell,
-    ] {
+    for shell in [ShellType::Bash, ShellType::Fish, ShellType::PowerShell] {
         let content = generate_env_script(shell, data_dir);
         let path = data_dir.join(shell.env_file_name());
 

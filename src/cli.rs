@@ -260,7 +260,8 @@ mod tests {
 
     #[test]
     fn test_add_with_provider() {
-        let cli = Cli::try_parse_from(["schalentier", "add", "ripgrep", "--provider", "cargo"]).unwrap();
+        let cli =
+            Cli::try_parse_from(["schalentier", "add", "ripgrep", "--provider", "cargo"]).unwrap();
         match cli.command {
             Commands::Add { name, provider, .. } => {
                 assert_eq!(name, "ripgrep");
@@ -284,9 +285,12 @@ mod tests {
 
     #[test]
     fn test_search_with_provider() {
-        let cli = Cli::try_parse_from(["schalentier", "search", "ripgrep", "--provider", "cargo"]).unwrap();
+        let cli = Cli::try_parse_from(["schalentier", "search", "ripgrep", "--provider", "cargo"])
+            .unwrap();
         match cli.command {
-            Commands::Search { query, provider, .. } => {
+            Commands::Search {
+                query, provider, ..
+            } => {
                 assert_eq!(query, "ripgrep");
                 assert_eq!(provider, Some("cargo".to_string()));
             }
@@ -298,7 +302,9 @@ mod tests {
     fn test_search_without_provider() {
         let cli = Cli::try_parse_from(["schalentier", "search", "ripgrep"]).unwrap();
         match cli.command {
-            Commands::Search { query, provider, .. } => {
+            Commands::Search {
+                query, provider, ..
+            } => {
                 assert_eq!(query, "ripgrep");
                 assert!(provider.is_none());
             }
