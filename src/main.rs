@@ -55,7 +55,11 @@ async fn run() -> Result<()> {
     debug!("Command: {:?}", cli.command);
 
     match cli.command {
-        Commands::Init { force, yes, skip_bootstrap } => {
+        Commands::Init {
+            force,
+            yes,
+            skip_bootstrap,
+        } => {
             cmd_init(force, yes, skip_bootstrap).await?;
         }
         Commands::Add {
@@ -66,7 +70,13 @@ async fn run() -> Result<()> {
         } => {
             cmd_add(&name, provider.as_deref(), no_install, dry_run).await?;
         }
-        Commands::Sync { remote, push, pull, prune, dry_run } => {
+        Commands::Sync {
+            remote,
+            push,
+            pull,
+            prune,
+            dry_run,
+        } => {
             cmd_sync(remote.as_deref(), push, pull, prune, dry_run).await?;
         }
         Commands::Update { name, dry_run } => {
@@ -84,10 +94,18 @@ async fn run() -> Result<()> {
         Commands::List { detailed, provider } => {
             cmd_list(detailed, provider.as_deref()).await?;
         }
-        Commands::Search { query, limit, provider } => {
+        Commands::Search {
+            query,
+            limit,
+            provider,
+        } => {
             cmd_search(&query, limit, provider.as_deref()).await?;
         }
-        Commands::Alias { definition, list, remove } => {
+        Commands::Alias {
+            definition,
+            list,
+            remove,
+        } => {
             cmd_alias(definition, list, remove)?;
         }
         Commands::Snippet { action } => {
@@ -167,9 +185,15 @@ fn prompt_init_options() -> Result<(bool, bool)> {
     println!("This will set up your cross-platform package manager.\n");
 
     // Ask about bootstrap components
-    let components = vec![
-        ("uv", "uv - Fast Python package installer (recommended for Python CLI tools)"),
-        ("conda", "Miniforge/Conda - Scientific packages and isolated environments"),
+    let components = [
+        (
+            "uv",
+            "uv - Fast Python package installer (recommended for Python CLI tools)",
+        ),
+        (
+            "conda",
+            "Miniforge/Conda - Scientific packages and isolated environments",
+        ),
     ];
 
     let defaults = vec![0, 1]; // Both selected by default
@@ -215,7 +239,12 @@ fn prompt_init_options() -> Result<(bool, bool)> {
 }
 
 /// Add a package to the configuration
-async fn cmd_add(name: &str, provider: Option<&str>, no_install: bool, dry_run: bool) -> Result<()> {
+async fn cmd_add(
+    name: &str,
+    provider: Option<&str>,
+    no_install: bool,
+    dry_run: bool,
+) -> Result<()> {
     let mut config = SchalentierConfig::load()?;
     let mut state = LocalState::load()?;
 
@@ -251,8 +280,13 @@ async fn cmd_add(name: &str, provider: Option<&str>, no_install: bool, dry_run: 
             }
         } else {
             println!("  Tool not found on system");
-            println!("  Action: Would INSTALL via {}",
-                provider_enum.as_ref().map(|p| format!("{}", p)).unwrap_or_else(|| "auto-detected provider".to_string()));
+            println!(
+                "  Action: Would INSTALL via {}",
+                provider_enum
+                    .as_ref()
+                    .map(|p| format!("{}", p))
+                    .unwrap_or_else(|| "auto-detected provider".to_string())
+            );
         }
 
         // Search for the tool to show available versions
@@ -264,9 +298,16 @@ async fn cmd_add(name: &str, provider: Option<&str>, no_install: bool, dry_run: 
         println!();
         println!("  Available from:");
         let results = registry.search_all_clustered(name, 1).await;
-        for result in results.iter().filter(|r| r.name.to_lowercase() == name.to_lowercase()) {
+        for result in results
+            .iter()
+            .filter(|r| r.name.to_lowercase() == name.to_lowercase())
+        {
             for p in &result.providers {
-                let ver = p.version.as_ref().map(|v| format_version(v)).unwrap_or_else(|| "?".to_string());
+                let ver = p
+                    .version
+                    .as_ref()
+                    .map(|v| format_version(v))
+                    .unwrap_or_else(|| "?".to_string());
                 println!("    - {} {}", p.provider, ver);
             }
         }
@@ -289,7 +330,10 @@ async fn cmd_add(name: &str, provider: Option<&str>, no_install: bool, dry_run: 
 
     if no_install {
         config.save()?;
-        print_success(&format!("Added '{}' to configuration (not installed)", name));
+        print_success(&format!(
+            "Added '{}' to configuration (not installed)",
+            name
+        ));
         return Ok(());
     }
 
@@ -349,10 +393,15 @@ async fn cmd_add(name: &str, provider: Option<&str>, no_install: bool, dry_run: 
 
     // Use install_with_fallback which tries preferred provider first,
     // then falls back to others in priority order
-    match registry.install_with_fallback(name, None, provider_enum.clone()).await {
+    match registry
+        .install_with_fallback(name, None, provider_enum.clone())
+        .await
+    {
         Ok((install_result, actual_provider)) => {
             // Check if fallback was used
-            let used_fallback = provider_enum.as_ref().map_or(false, |p| p != &actual_provider);
+            let used_fallback = provider_enum
+                .as_ref()
+                .is_some_and(|p| p != &actual_provider);
             if used_fallback {
                 print_info(&format!(
                     "Note: Preferred provider {:?} unavailable, used {:?} instead",
@@ -400,17 +449,19 @@ async fn cmd_add(name: &str, provider: Option<&str>, no_install: bool, dry_run: 
 fn get_binary_version(path: &std::path::Path) -> Option<String> {
     use std::process::Command;
 
-    let output = Command::new(path)
-        .arg("--version")
-        .output()
-        .ok()?;
+    let output = Command::new(path).arg("--version").output().ok()?;
 
     if output.status.success() {
         let stdout = String::from_utf8_lossy(&output.stdout);
         // Parse version from output like "tool 1.2.3" or "tool version 1.2.3"
         stdout
             .split_whitespace()
-            .find(|s| s.chars().next().map(|c| c.is_ascii_digit()).unwrap_or(false))
+            .find(|s| {
+                s.chars()
+                    .next()
+                    .map(|c| c.is_ascii_digit())
+                    .unwrap_or(false)
+            })
             .map(|s| s.trim_end_matches(',').to_string())
     } else {
         None
@@ -423,24 +474,34 @@ fn detect_provider_from_path(path: &std::path::Path) -> Provider {
 
     if path_str.contains(".cargo/bin") {
         Provider::Cargo
-    } else if path_str.contains("linuxbrew") || path_str.contains("homebrew") || path_str.contains("Cellar") {
+    } else if path_str.contains("linuxbrew")
+        || path_str.contains("homebrew")
+        || path_str.contains("Cellar")
+    {
         Provider::Brew
-    } else if path_str.contains("conda") || path_str.contains("mamba") || path_str.contains("miniforge") {
+    } else if path_str.contains("conda")
+        || path_str.contains("mamba")
+        || path_str.contains("miniforge")
+    {
         Provider::Conda
     } else if path_str.contains(".local/bin") {
         // Could be uv or pip installed
         Provider::Uv
     } else if path_str.contains(".schalentier") {
         Provider::Binary
-    } else if path_str.starts_with("/usr") || path_str.starts_with("/bin") {
-        Provider::System
     } else {
-        Provider::System // Default fallback
+        Provider::System // Default fallback for /usr, /bin, and others
     }
 }
 
 /// Sync configuration with remote
-async fn cmd_sync(remote: Option<&str>, push: bool, pull: bool, prune: bool, dry_run: bool) -> Result<()> {
+async fn cmd_sync(
+    remote: Option<&str>,
+    push: bool,
+    pull: bool,
+    prune: bool,
+    dry_run: bool,
+) -> Result<()> {
     use std::process::Command;
 
     let config = SchalentierConfig::load()?;
@@ -448,9 +509,7 @@ async fn cmd_sync(remote: Option<&str>, push: bool, pull: bool, prune: bool, dry
     let config_dir = schalentier::state::config_dir()?;
 
     // Determine remote URL
-    let remote_url = remote
-        .map(String::from)
-        .or(config.sync.remote.clone());
+    let remote_url = remote.map(String::from).or(config.sync.remote.clone());
 
     // Dry run - show what would happen
     if dry_run {
@@ -458,8 +517,22 @@ async fn cmd_sync(remote: Option<&str>, push: bool, pull: bool, prune: bool, dry
         println!();
 
         println!("  Config directory: {}", config_dir.display());
-        println!("  Remote URL: {}", remote_url.as_deref().unwrap_or("(not configured)"));
-        println!("  Mode: {}", if push && pull { "bidirectional" } else if push { "push" } else if pull { "pull" } else { "bidirectional (default)" });
+        println!(
+            "  Remote URL: {}",
+            remote_url.as_deref().unwrap_or("(not configured)")
+        );
+        println!(
+            "  Mode: {}",
+            if push && pull {
+                "bidirectional"
+            } else if push {
+                "push"
+            } else if pull {
+                "pull"
+            } else {
+                "bidirectional (default)"
+            }
+        );
         println!();
 
         // Check if git repo exists
@@ -678,7 +751,10 @@ async fn cmd_sync(remote: Option<&str>, push: bool, pull: bool, prune: bool, dry
             .collect();
 
         if !to_install.is_empty() {
-            print_info(&format!("Installing {} new tools from config...", to_install.len()));
+            print_info(&format!(
+                "Installing {} new tools from config...",
+                to_install.len()
+            ));
 
             for (name, entry) in to_install {
                 info!("Installing {}...", name);
@@ -734,7 +810,9 @@ async fn cmd_sync(remote: Option<&str>, push: bool, pull: bool, prune: bool, dry
                         if let Some(provider) = registry.get(tool.provider.clone()) {
                             match provider.uninstall(&name).await {
                                 Ok(_) => print_success(&format!("  Removed {}", name)),
-                                Err(e) => print_warning(&format!("  Failed to remove {}: {}", name, e)),
+                                Err(e) => {
+                                    print_warning(&format!("  Failed to remove {}: {}", name, e))
+                                }
                             }
                         }
                     }
@@ -827,7 +905,11 @@ async fn cmd_update(name: Option<&str>, dry_run: bool) -> Result<()> {
             return Ok(());
         }
     } else {
-        state.tools.iter().map(|(k, v)| (k.clone(), v.clone())).collect()
+        state
+            .tools
+            .iter()
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect()
     };
 
     if tools_to_check.is_empty() {
@@ -861,13 +943,18 @@ async fn cmd_update(name: Option<&str>, dry_run: bool) -> Result<()> {
                     if needs_update {
                         println!(
                             "  {} {} -> {} [{}] UPDATE AVAILABLE",
-                            tool_name, format_version(current_version), format_version(&latest), tool.provider
+                            tool_name,
+                            format_version(current_version),
+                            format_version(&latest),
+                            tool.provider
                         );
                         updates_available.push((tool_name.clone(), tool.clone(), latest));
                     } else {
                         println!(
                             "  {} {} [{}] up to date",
-                            tool_name, format_version(current_version), tool.provider
+                            tool_name,
+                            format_version(current_version),
+                            tool.provider
                         );
                         up_to_date += 1;
                     }
@@ -875,14 +962,19 @@ async fn cmd_update(name: Option<&str>, dry_run: bool) -> Result<()> {
                 Ok(None) => {
                     println!(
                         "  {} {} [{}] - could not determine latest version",
-                        tool_name, format_version(current_version), tool.provider
+                        tool_name,
+                        format_version(current_version),
+                        tool.provider
                     );
                     check_failed += 1;
                 }
                 Err(e) => {
                     println!(
                         "  {} {} [{}] - check failed: {}",
-                        tool_name, format_version(current_version), tool.provider, e
+                        tool_name,
+                        format_version(current_version),
+                        tool.provider,
+                        e
                     );
                     check_failed += 1;
                 }
@@ -890,7 +982,9 @@ async fn cmd_update(name: Option<&str>, dry_run: bool) -> Result<()> {
         } else {
             println!(
                 "  {} {} [{}] - provider not available",
-                tool_name, format_version(current_version), tool.provider
+                tool_name,
+                format_version(current_version),
+                tool.provider
             );
             check_failed += 1;
         }
@@ -900,10 +994,7 @@ async fn cmd_update(name: Option<&str>, dry_run: bool) -> Result<()> {
     println!();
 
     if updates_available.is_empty() {
-        print_success(&format!(
-            "All {} managed tools are up to date!",
-            up_to_date
-        ));
+        print_success(&format!("All {} managed tools are up to date!", up_to_date));
         if check_failed > 0 {
             print_warning(&format!("{} tools could not be checked", check_failed));
         }
@@ -981,7 +1072,7 @@ fn version_is_newer(latest: &str, current: &str) -> bool {
 
     // Parse as semver-like components
     let parse_version = |v: &str| -> Vec<u64> {
-        v.split(|c: char| c == '.' || c == '-' || c == '+')
+        v.split(['.', '-', '+'])
             .filter_map(|part| part.parse::<u64>().ok())
             .collect()
     };
@@ -1110,7 +1201,7 @@ async fn cmd_doctor(fix: bool) -> Result<()> {
     // Check available providers
     let arch = get_arch()?;
     let os = get_os()?;
-    let registry = create_default_registry(arch.clone(), os.clone(), data_dir.clone());
+    let registry = create_default_registry(arch, os, data_dir.clone());
 
     let provider_checks = [
         ("Binary (GitHub)", Provider::Binary),
@@ -1171,9 +1262,7 @@ async fn cmd_doctor(fix: bool) -> Result<()> {
             if output.stdout.is_empty() {
                 println!("None");
             } else {
-                let changes = String::from_utf8_lossy(&output.stdout)
-                    .lines()
-                    .count();
+                let changes = String::from_utf8_lossy(&output.stdout).lines().count();
                 println!("{} files modified", changes);
             }
         } else {
@@ -1298,7 +1387,10 @@ async fn cmd_remove(name: &str, keep_installed: bool) -> Result<()> {
                 state.tools.remove(name);
                 config.save()?;
                 state.save()?;
-                print_success(&format!("Removed '{}' from tracking (tool still installed)", name));
+                print_success(&format!(
+                    "Removed '{}' from tracking (tool still installed)",
+                    name
+                ));
             }
             return Ok(());
         }
@@ -1309,7 +1401,10 @@ async fn cmd_remove(name: &str, keep_installed: bool) -> Result<()> {
     config.save()?;
 
     if keep_installed {
-        print_success(&format!("Removed '{}' from configuration (kept installed)", name));
+        print_success(&format!(
+            "Removed '{}' from configuration (kept installed)",
+            name
+        ));
         return Ok(());
     }
 
@@ -1422,7 +1517,14 @@ async fn cmd_list(detailed: bool, provider_filter: Option<&str>) -> Result<()> {
 
                 // Check if binary is actually accessible
                 let accessible = which::which(name).is_ok();
-                println!("  Accessible: {}", if accessible { "yes" } else { "NO (not in PATH)" });
+                println!(
+                    "  Accessible: {}",
+                    if accessible {
+                        "yes"
+                    } else {
+                        "NO (not in PATH)"
+                    }
+                );
             } else {
                 println!("  Status: Not installed");
             }
@@ -1448,7 +1550,10 @@ async fn cmd_list(detailed: bool, provider_filter: Option<&str>) -> Result<()> {
                 .map(|p| format!("[{}]", p))
                 .unwrap_or_default();
 
-            println!("  {} {} {} {} {}", status_symbol, name, version, provider_str, status_text);
+            println!(
+                "  {} {} {} {} {}",
+                status_symbol, name, version, provider_str, status_text
+            );
         }
     }
 
@@ -1469,24 +1574,28 @@ async fn cmd_search(query: &str, limit: usize, provider_filter: Option<&str>) ->
     let registry = create_default_registry(arch, os, data_dir);
 
     // Parse provider filter if specified
-    let filter = provider_filter.and_then(|p| {
-        match p.to_lowercase().as_str() {
-            "system" => Some(Provider::System),
-            "conda" => Some(Provider::Conda),
-            "cargo" => Some(Provider::Cargo),
-            "binary" => Some(Provider::Binary),
-            "uv" => Some(Provider::Uv),
-            "brew" => Some(Provider::Brew),
-            _ => {
-                print_warning(&format!("Unknown provider '{}', searching all providers", p));
-                None
-            }
+    let filter = provider_filter.and_then(|p| match p.to_lowercase().as_str() {
+        "system" => Some(Provider::System),
+        "conda" => Some(Provider::Conda),
+        "cargo" => Some(Provider::Cargo),
+        "binary" => Some(Provider::Binary),
+        "uv" => Some(Provider::Uv),
+        "brew" => Some(Provider::Brew),
+        _ => {
+            print_warning(&format!(
+                "Unknown provider '{}', searching all providers",
+                p
+            ));
+            None
         }
     });
 
     let results = if let Some(ref provider_type) = filter {
         // Search only the specified provider
-        let spinner = create_spinner(&format!("Searching for '{}' in {:?}...", query, provider_type));
+        let spinner = create_spinner(&format!(
+            "Searching for '{}' in {:?}...",
+            query, provider_type
+        ));
 
         let results = if let Some(provider) = registry.get(provider_type.clone()) {
             if provider.is_available() {
@@ -1500,7 +1609,10 @@ async fn cmd_search(query: &str, limit: usize, provider_filter: Option<&str>) ->
                 }
             } else {
                 spinner.finish_and_clear();
-                print_warning(&format!("Provider {:?} is not available on this system", provider_type));
+                print_warning(&format!(
+                    "Provider {:?} is not available on this system",
+                    provider_type
+                ));
                 Vec::new()
             }
         } else {
@@ -1572,12 +1684,7 @@ async fn cmd_search(query: &str, limit: usize, provider_filter: Option<&str>) ->
             .as_deref()
             .map(format_version)
             .unwrap_or_else(|| "v?".to_string());
-        println!(
-            "  {} {} [{}]",
-            result.name,
-            version_str,
-            result.provider
-        );
+        println!("  {} {} [{}]", result.name, version_str, result.provider);
         if let Some(desc) = &result.description {
             // Truncate long descriptions
             let desc = if desc.len() > 60 {
@@ -1691,8 +1798,14 @@ fn create_alias(bin_dir: &std::path::Path, definition: &str) -> Result<()> {
     let (name, command) = parse_alias_definition(definition)?;
 
     // Validate name (alphanumeric, underscores, hyphens only)
-    if !name.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '-') {
-        anyhow::bail!("Invalid alias name '{}'. Use only letters, numbers, underscores, and hyphens.", name);
+    if !name
+        .chars()
+        .all(|c| c.is_alphanumeric() || c == '_' || c == '-')
+    {
+        anyhow::bail!(
+            "Invalid alias name '{}'. Use only letters, numbers, underscores, and hyphens.",
+            name
+        );
     }
 
     // Check if it would shadow an existing binary
@@ -2138,7 +2251,8 @@ fn config_reset(file: &str) -> Result<()> {
 /// Get a built-in snippet by name
 fn get_builtin_snippet(name: &str) -> Result<String> {
     let snippet = match name.to_lowercase().as_str() {
-        "yazi" => r#"# Schalentier snippet: yazi
+        "yazi" => {
+            r#"# Schalentier snippet: yazi
 # Wrapper function for yazi that changes directory on exit
 
 function yy() {
@@ -2149,42 +2263,53 @@ function yy() {
     fi
     rm -f -- "$tmp"
 }
-"#,
-        "zoxide" => r#"# Schalentier snippet: zoxide
+"#
+        }
+        "zoxide" => {
+            r#"# Schalentier snippet: zoxide
 # Smart cd command that learns your habits
 
 if command -v zoxide >/dev/null 2>&1; then
     eval "$(zoxide init bash)"
 fi
-"#,
-        "fzf" => r#"# Schalentier snippet: fzf
+"#
+        }
+        "fzf" => {
+            r#"# Schalentier snippet: fzf
 # Fuzzy finder key bindings (Ctrl+R for history, Ctrl+T for files)
 
 if command -v fzf >/dev/null 2>&1; then
     eval "$(fzf --bash)"
 fi
-"#,
-        "direnv" => r#"# Schalentier snippet: direnv
+"#
+        }
+        "direnv" => {
+            r#"# Schalentier snippet: direnv
 # Automatic environment loading from .envrc files
 
 if command -v direnv >/dev/null 2>&1; then
     eval "$(direnv hook bash)"
 fi
-"#,
-        "starship" => r#"# Schalentier snippet: starship
+"#
+        }
+        "starship" => {
+            r#"# Schalentier snippet: starship
 # Cross-shell prompt customization
 
 if command -v starship >/dev/null 2>&1; then
     eval "$(starship init bash)"
 fi
-"#,
-        "atuin" => r#"# Schalentier snippet: atuin
+"#
+        }
+        "atuin" => {
+            r#"# Schalentier snippet: atuin
 # Magical shell history with sync
 
 if command -v atuin >/dev/null 2>&1; then
     eval "$(atuin init bash)"
 fi
-"#,
+"#
+        }
         _ => {
             return Err(anyhow::anyhow!(
                 "Unknown snippet '{}'. Available: yazi, zoxide, fzf, direnv, starship, atuin",

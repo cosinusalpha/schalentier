@@ -38,12 +38,11 @@ impl ArchiveFormat {
 /// Automatically detects the archive format from the file extension.
 /// Returns the list of extracted file paths.
 pub fn extract(archive_path: &Path, dest_dir: &Path) -> Result<Vec<PathBuf>> {
-    let format = ArchiveFormat::from_path(archive_path).ok_or_else(|| {
-        SchalentierError::InstallFailed {
+    let format =
+        ArchiveFormat::from_path(archive_path).ok_or_else(|| SchalentierError::InstallFailed {
             package: archive_path.display().to_string(),
             reason: "Unsupported archive format. Only .tar.gz and .zip are supported.".to_string(),
-        }
-    })?;
+        })?;
 
     info!(
         "Extracting {:?} archive: {} -> {}",
@@ -106,7 +105,10 @@ fn extract_tar_archive<R: Read>(archive: &mut Archive<R>, dest_dir: &Path) -> Re
                     // Has execute bit
                     let current = std::fs::metadata(&dest_path)?.permissions();
                     let new_mode = current.mode() | 0o111;
-                    std::fs::set_permissions(&dest_path, std::fs::Permissions::from_mode(new_mode))?;
+                    std::fs::set_permissions(
+                        &dest_path,
+                        std::fs::Permissions::from_mode(new_mode),
+                    )?;
                 }
             }
         }
@@ -123,8 +125,8 @@ fn extract_zip(archive_path: &Path, dest_dir: &Path) -> Result<Vec<PathBuf>> {
     let file = File::open(archive_path)
         .with_context(|| format!("Failed to open archive: {}", archive_path.display()))?;
 
-    let mut archive = zip::ZipArchive::new(BufReader::new(file))
-        .with_context(|| "Failed to read zip archive")?;
+    let mut archive =
+        zip::ZipArchive::new(BufReader::new(file)).with_context(|| "Failed to read zip archive")?;
 
     let mut extracted_files = Vec::new();
 
@@ -137,7 +139,10 @@ fn extract_zip(archive_path: &Path, dest_dir: &Path) -> Result<Vec<PathBuf>> {
 
         // Security: prevent path traversal
         if !outpath.starts_with(dest_dir) {
-            debug!("Skipping path with traversal attempt: {}", outpath.display());
+            debug!(
+                "Skipping path with traversal attempt: {}",
+                outpath.display()
+            );
             continue;
         }
 
@@ -195,12 +200,16 @@ pub fn find_binary(extracted_files: &[PathBuf], name: &str) -> Option<PathBuf> {
             let filename_lower = filename.to_lowercase();
 
             // Match "name-version" style binaries without extension
-            if filename_lower.starts_with(&format!("{}-", name_lower)) && !filename_lower.contains('.') {
+            if filename_lower.starts_with(&format!("{}-", name_lower))
+                && !filename_lower.contains('.')
+            {
                 return Some(path.clone());
             }
 
             // Match "name-version.exe" style binaries
-            if filename_lower.starts_with(&format!("{}-", name_lower)) && filename_lower.ends_with(".exe") {
+            if filename_lower.starts_with(&format!("{}-", name_lower))
+                && filename_lower.ends_with(".exe")
+            {
                 return Some(path.clone());
             }
         }

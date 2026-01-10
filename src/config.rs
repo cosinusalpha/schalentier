@@ -40,7 +40,7 @@ pub struct ToolEntry {
 }
 
 /// Main configuration file (schalentier.toml)
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct SchalentierConfig {
     /// Global settings
     #[serde(default)]
@@ -57,17 +57,6 @@ pub struct SchalentierConfig {
     /// Dotfiles to manage (key = file path, value = settings)
     #[serde(default)]
     pub dotfiles: HashMap<String, toml::Value>,
-}
-
-impl Default for SchalentierConfig {
-    fn default() -> Self {
-        Self {
-            settings: Settings::default(),
-            tools: HashMap::new(),
-            sync: SyncConfig::default(),
-            dotfiles: HashMap::new(),
-        }
-    }
 }
 
 /// Global settings
@@ -87,12 +76,12 @@ pub struct Settings {
 
 fn default_provider_priority() -> Vec<Provider> {
     vec![
-        Provider::Binary,  // Fastest, no dependencies
-        Provider::Cargo,   // Rust ecosystem
-        Provider::Brew,    // Cross-platform package manager
-        Provider::Conda,   // Python/scientific packages
-        Provider::Uv,      // Python tools
-        Provider::System,  // OS package manager (requires sudo)
+        Provider::Binary, // Fastest, no dependencies
+        Provider::Cargo,  // Rust ecosystem
+        Provider::Brew,   // Cross-platform package manager
+        Provider::Conda,  // Python/scientific packages
+        Provider::Uv,     // Python tools
+        Provider::System, // OS package manager (requires sudo)
     ]
 }
 
@@ -261,7 +250,10 @@ mod tests {
         assert_eq!(settings.provider_priority[0], Provider::Binary);
         assert_eq!(settings.provider_priority.len(), 6);
         // Binary first (fastest), System last (requires sudo)
-        assert_eq!(settings.provider_priority.last().unwrap(), &Provider::System);
+        assert_eq!(
+            settings.provider_priority.last().unwrap(),
+            &Provider::System
+        );
     }
 
     #[test]

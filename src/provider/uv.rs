@@ -71,9 +71,7 @@ impl UvProvider {
     /// Get the bin directory for UV-installed tools
     fn tools_bin_dir(&self) -> PathBuf {
         // UV installs tools to ~/.local/bin by default
-        dirs::home_dir()
-            .unwrap_or_default()
-            .join(".local/bin")
+        dirs::home_dir().unwrap_or_default().join(".local/bin")
     }
 
     /// Search PyPI for packages
@@ -125,9 +123,7 @@ impl UvProvider {
 
 impl Default for UvProvider {
     fn default() -> Self {
-        let data_dir = dirs::home_dir()
-            .unwrap_or_default()
-            .join(".schalentier");
+        let data_dir = dirs::home_dir().unwrap_or_default().join(".schalentier");
         Self::new(data_dir)
     }
 }
@@ -148,14 +144,12 @@ impl Installer for UvProvider {
         let results: Vec<SearchResult> = packages
             .into_iter()
             .take(limit)
-            .map(|pkg| {
-                SearchResult {
-                    name: pkg.name,
-                    description: pkg.summary,
-                    version: Some(pkg.version),
-                    provider: Provider::Uv,
-                    metadata: HashMap::new(),
-                }
+            .map(|pkg| SearchResult {
+                name: pkg.name,
+                description: pkg.summary,
+                version: Some(pkg.version),
+                provider: Provider::Uv,
+                metadata: HashMap::new(),
             })
             .collect();
 
@@ -165,9 +159,9 @@ impl Installer for UvProvider {
     async fn install(&self, name: &str, version: Option<&str>) -> Result<InstallResult> {
         info!("Installing {} via uv tool...", name);
 
-        let uv = self.uv_bin().ok_or_else(|| {
-            SchalentierError::ProviderNotAvailable("uv not found".to_string())
-        })?;
+        let uv = self
+            .uv_bin()
+            .ok_or_else(|| SchalentierError::ProviderNotAvailable("uv not found".to_string()))?;
 
         let mut cmd = Command::new(&uv);
         cmd.arg("tool");
@@ -231,9 +225,9 @@ impl Installer for UvProvider {
     async fn uninstall(&self, name: &str) -> Result<()> {
         info!("Uninstalling {} via uv tool...", name);
 
-        let uv = self.uv_bin().ok_or_else(|| {
-            SchalentierError::ProviderNotAvailable("uv not found".to_string())
-        })?;
+        let uv = self
+            .uv_bin()
+            .ok_or_else(|| SchalentierError::ProviderNotAvailable("uv not found".to_string()))?;
 
         let status = Command::new(&uv)
             .args(["tool", "uninstall", name])
@@ -268,18 +262,15 @@ impl Installer for UvProvider {
             None => return Ok(false),
         };
 
-        let output = Command::new(&uv)
-            .args(["tool", "list"])
-            .output()
-            .ok();
+        let output = Command::new(&uv).args(["tool", "list"]).output().ok();
 
         if let Some(output) = output {
             if output.status.success() {
                 let stdout = String::from_utf8_lossy(&output.stdout);
                 // Check if the package name appears in the output
-                return Ok(stdout.lines().any(|line| {
-                    line.split_whitespace().next() == Some(name)
-                }));
+                return Ok(stdout
+                    .lines()
+                    .any(|line| line.split_whitespace().next() == Some(name)));
             }
         }
 
@@ -293,10 +284,7 @@ impl Installer for UvProvider {
             None => return Ok(None),
         };
 
-        let output = Command::new(&uv)
-            .args(["tool", "list"])
-            .output()
-            .ok();
+        let output = Command::new(&uv).args(["tool", "list"]).output().ok();
 
         if let Some(output) = output {
             if output.status.success() {
@@ -325,7 +313,12 @@ impl Installer for UvProvider {
                     let stdout = String::from_utf8_lossy(&output.stdout);
                     let version = stdout
                         .split_whitespace()
-                        .find(|s| s.chars().next().map(|c| c.is_ascii_digit()).unwrap_or(false))
+                        .find(|s| {
+                            s.chars()
+                                .next()
+                                .map(|c| c.is_ascii_digit())
+                                .unwrap_or(false)
+                        })
                         .map(|s| s.to_string());
                     return Ok(version);
                 }

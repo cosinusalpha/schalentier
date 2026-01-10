@@ -82,9 +82,9 @@ impl BrewProvider {
 
     /// Run a brew command and capture output
     fn run_brew_command(&self, args: &[&str]) -> Result<String> {
-        let brew = self.brew_bin().ok_or_else(|| {
-            SchalentierError::ProviderNotAvailable("brew not found".to_string())
-        })?;
+        let brew = self
+            .brew_bin()
+            .ok_or_else(|| SchalentierError::ProviderNotAvailable("brew not found".to_string()))?;
 
         debug!("Running: {:?} {:?}", brew, args);
 
@@ -189,9 +189,9 @@ impl Installer for BrewProvider {
     async fn install(&self, name: &str, version: Option<&str>) -> Result<InstallResult> {
         info!("Installing {} via brew...", name);
 
-        let brew = self.brew_bin().ok_or_else(|| {
-            SchalentierError::ProviderNotAvailable("brew not found".to_string())
-        })?;
+        let brew = self
+            .brew_bin()
+            .ok_or_else(|| SchalentierError::ProviderNotAvailable("brew not found".to_string()))?;
 
         let mut cmd = Command::new(&brew);
         cmd.arg("install");
@@ -245,9 +245,9 @@ impl Installer for BrewProvider {
     async fn uninstall(&self, name: &str) -> Result<()> {
         info!("Uninstalling {} via brew...", name);
 
-        let brew = self.brew_bin().ok_or_else(|| {
-            SchalentierError::ProviderNotAvailable("brew not found".to_string())
-        })?;
+        let brew = self
+            .brew_bin()
+            .ok_or_else(|| SchalentierError::ProviderNotAvailable("brew not found".to_string()))?;
 
         let status = Command::new(&brew)
             .args(["uninstall", name])
@@ -294,7 +294,12 @@ impl Installer for BrewProvider {
                     let stdout = String::from_utf8_lossy(&output.stdout);
                     let version = stdout
                         .split_whitespace()
-                        .find(|s| s.chars().next().map(|c| c.is_ascii_digit()).unwrap_or(false))
+                        .find(|s| {
+                            s.chars()
+                                .next()
+                                .map(|c| c.is_ascii_digit())
+                                .unwrap_or(false)
+                        })
                         .map(|s| s.to_string());
                     return Ok(version);
                 }

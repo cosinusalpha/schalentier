@@ -258,7 +258,7 @@ impl Bootstrap {
         info!("Installing uv...");
 
         let url = uv_url(self.arch, self.os)?;
-        let archive_name = url.split('/').last().unwrap_or("uv-archive");
+        let archive_name = url.split('/').next_back().unwrap_or("uv-archive");
         let archive_path = self.paths.downloads_dir.join(archive_name);
 
         download_file(&url, &archive_path).await?;
@@ -296,7 +296,10 @@ impl Bootstrap {
             .ok_or_else(|| {
                 SchalentierError::BootstrapFailed(format!(
                     "Could not find uv binary in extracted files. Found: {:?}",
-                    extracted_files.iter().filter_map(|p| p.file_name()).collect::<Vec<_>>()
+                    extracted_files
+                        .iter()
+                        .filter_map(|p| p.file_name())
+                        .collect::<Vec<_>>()
                 ))
             })?;
 
@@ -327,7 +330,7 @@ impl Bootstrap {
         info!("Installing Miniforge...");
 
         let url = miniforge_url(self.arch, self.os)?;
-        let installer_name = url.split('/').last().unwrap_or("miniforge-installer");
+        let installer_name = url.split('/').next_back().unwrap_or("miniforge-installer");
         let installer_path = self.paths.downloads_dir.join(installer_name);
 
         download_file(&url, &installer_path).await?;
@@ -339,7 +342,10 @@ impl Bootstrap {
                 #[cfg(unix)]
                 {
                     use std::os::unix::fs::PermissionsExt;
-                    std::fs::set_permissions(&installer_path, std::fs::Permissions::from_mode(0o755))?;
+                    std::fs::set_permissions(
+                        &installer_path,
+                        std::fs::Permissions::from_mode(0o755),
+                    )?;
                 }
 
                 info!("Running Miniforge installer in batch mode...");
@@ -352,20 +358,27 @@ impl Bootstrap {
                     .with_context(|| "Failed to run Miniforge installer")?;
 
                 if !status.success() {
-                    return Err(SchalentierError::BootstrapFailed(
-                        format!("Miniforge installer failed with exit code: {:?}", status.code())
-                    ).into());
+                    return Err(SchalentierError::BootstrapFailed(format!(
+                        "Miniforge installer failed with exit code: {:?}",
+                        status.code()
+                    ))
+                    .into());
                 }
 
                 // Verify conda was installed
                 let conda_bin = self.paths.conda_dir.join("bin").join("conda");
                 if !conda_bin.exists() {
-                    return Err(SchalentierError::BootstrapFailed(
-                        format!("Miniforge installed but conda not found at {}", conda_bin.display())
-                    ).into());
+                    return Err(SchalentierError::BootstrapFailed(format!(
+                        "Miniforge installed but conda not found at {}",
+                        conda_bin.display()
+                    ))
+                    .into());
                 }
 
-                info!("Miniforge installed successfully to {}", self.paths.conda_dir.display());
+                info!(
+                    "Miniforge installed successfully to {}",
+                    self.paths.conda_dir.display()
+                );
             }
             Os::Windows => {
                 // Windows uses .exe installer with different arguments
@@ -377,20 +390,27 @@ impl Bootstrap {
                     .with_context(|| "Failed to run Miniforge installer")?;
 
                 if !status.success() {
-                    return Err(SchalentierError::BootstrapFailed(
-                        format!("Miniforge installer failed with exit code: {:?}", status.code())
-                    ).into());
+                    return Err(SchalentierError::BootstrapFailed(format!(
+                        "Miniforge installer failed with exit code: {:?}",
+                        status.code()
+                    ))
+                    .into());
                 }
 
                 // Verify conda was installed
                 let conda_bin = self.paths.conda_dir.join("Scripts").join("conda.exe");
                 if !conda_bin.exists() {
-                    return Err(SchalentierError::BootstrapFailed(
-                        format!("Miniforge installed but conda not found at {}", conda_bin.display())
-                    ).into());
+                    return Err(SchalentierError::BootstrapFailed(format!(
+                        "Miniforge installed but conda not found at {}",
+                        conda_bin.display()
+                    ))
+                    .into());
                 }
 
-                info!("Miniforge installed successfully to {}", self.paths.conda_dir.display());
+                info!(
+                    "Miniforge installed successfully to {}",
+                    self.paths.conda_dir.display()
+                );
             }
         }
 

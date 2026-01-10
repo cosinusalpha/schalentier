@@ -55,7 +55,9 @@ impl Installer for MockProvider {
     async fn install(&self, name: &str, version: Option<&str>) -> Result<InstallResult> {
         Ok(InstallResult {
             path: Some(std::path::PathBuf::from(format!("/usr/local/bin/{}", name))),
-            version: version.map(String::from).or_else(|| Some("1.0.0".to_string())),
+            version: version
+                .map(String::from)
+                .or_else(|| Some("1.0.0".to_string())),
             success: true,
             message: Some(format!("Mock installed {}", name)),
         })

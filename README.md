@@ -42,14 +42,14 @@ No more "works on my machine." No more 47-step setup guides.
 
 ## Why Another Tool?
 
-| Tool | Installs CLI tools | Syncs configs | Patches files | Git sync |
-|------|:------------------:|:-------------:|:-------------:|:--------:|
-| **chezmoi** | ❌ | ✅ | ✅ | ✅ |
-| **yadm** | ❌ | ✅ | ❌ | ✅ |
-| **mise/asdf** | ✅ (runtimes) | ❌ | ❌ | ❌ |
-| **aqua** | ✅ | ❌ | ❌ | ❌ |
-| **Homebrew** | ✅ | ❌ | ❌ | ❌ |
-| **Schalentier** | ✅ | ✅ | ✅ | ✅ |
+| Tool            | Installs CLI tools | Syncs configs | Patches files | Git sync |
+|-----------------|:------------------:|:-------------:|:-------------:|:--------:|
+| **chezmoi**     |         ❌          |       ✅       |       ✅       |    ✅     |
+| **yadm**        |         ❌          |       ✅       |       ❌       |    ✅     |
+| **mise/asdf**   |    ✅ (runtimes)    |       ❌       |       ❌       |    ❌     |
+| **aqua**        |         ✅          |       ❌       |       ❌       |    ❌     |
+| **Homebrew**    |         ✅          |       ❌       |       ❌       |    ❌     |
+| **Schalentier** |         ✅          |       ✅       |       ✅       |    ✅     |
 
 **chezmoi** and **yadm** are great for dotfiles, but they won't install your tools.
 **mise** and **aqua** install tools, but won't manage your configs.
@@ -291,14 +291,14 @@ schalentier snippet remove yazi       # Remove snippet
 
 Schalentier searches multiple sources to install your tools:
 
-| Provider | Source | Best for | Notes |
-|----------|--------|----------|-------|
-| `binary` | GitHub Releases | Most CLI tools | Fast, no dependencies, auto-detects platform |
-| `cargo` | crates.io | Rust tools | Builds from source, needs rustc |
-| `brew` | Homebrew/Linuxbrew | macOS packages | Cross-platform, large catalog |
-| `conda` | conda-forge | Scientific tools | Python/R/Julia ecosystem |
-| `uv` | PyPI | Python CLIs | Fast, isolated Python tools |
-| `system` | apt/pacman/dnf | System packages | May need sudo |
+| Provider | Source             | Best for         | Notes                                        |
+|----------|--------------------|------------------|----------------------------------------------|
+| `binary` | GitHub Releases    | Most CLI tools   | Fast, no dependencies, auto-detects platform |
+| `cargo`  | crates.io          | Rust tools       | Builds from source, needs rustc              |
+| `brew`   | Homebrew/Linuxbrew | macOS packages   | Cross-platform, large catalog                |
+| `conda`  | conda-forge        | Scientific tools | Python/R/Julia ecosystem                     |
+| `uv`     | PyPI               | Python CLIs      | Fast, isolated Python tools                  |
+| `system` | apt/pacman/dnf     | System packages  | May need sudo                                |
 
 ### Provider Fallback
 
@@ -425,18 +425,18 @@ if (Test-Path "$HOME\.schalentier\env.ps1") {
 
 ## Comparison Table
 
-| Feature | Schalentier | chezmoi | mise | aqua | Homebrew |
-|---------|-------------|---------|------|------|----------|
-| Install CLI tools | ✅ | ❌ | ✅ | ✅ | ✅ |
-| Multi-provider fallback | ✅ | - | ❌ | ❌ | ❌ |
-| Config file patching | ✅ | ✅ | ❌ | ❌ | ❌ |
-| Git sync | ✅ | ✅ | ❌ | ❌ | ❌ |
-| Shell aliases/snippets | ✅ | ❌ | ❌ | ❌ | ❌ |
-| Single binary | ✅ | ✅ | ✅ | ✅ | ❌ |
-| Windows support | 🚧 | ✅ | ✅ | ✅ | ❌ |
-| No runtime deps | ✅ | ✅ | ✅ | ✅ | ❌ (Ruby) |
-| Declarative config | ✅ | ✅ | ✅ | ✅ | ❌ |
-| Tool adoption | ✅ | - | ❌ | ❌ | ❌ |
+| Feature                 | Schalentier | chezmoi | mise | aqua | Homebrew |
+|-------------------------|-------------|---------|------|------|----------|
+| Install CLI tools       | ✅           | ❌       | ✅    | ✅    | ✅        |
+| Multi-provider fallback | ✅           | -       | ❌    | ❌    | ❌        |
+| Config file patching    | ✅           | ✅       | ❌    | ❌    | ❌        |
+| Git sync                | ✅           | ✅       | ❌    | ❌    | ❌        |
+| Shell aliases/snippets  | ✅           | ❌       | ❌    | ❌    | ❌        |
+| Single binary           | ✅           | ✅       | ✅    | ✅    | ❌        |
+| Windows support         | 🚧          | ✅       | ✅    | ✅    | ❌        |
+| No runtime deps         | ✅           | ✅       | ✅    | ✅    | ❌ (Ruby) |
+| Declarative config      | ✅           | ✅       | ✅    | ✅    | ❌        |
+| Tool adoption           | ✅           | -       | ❌    | ❌    | ❌        |
 
 ---
 
