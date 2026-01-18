@@ -15,6 +15,7 @@ exclude = [
 	".vscode/*",
 	"build-musl.sh",
 	"Cross.toml",
+	"Cargo.lock",
 ]
 
 [dependencies]
