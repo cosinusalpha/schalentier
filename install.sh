@@ -1,6 +1,6 @@
 #!/bin/sh
 # Schalentier installer
-# Usage: curl -fsSL https://raw.githubusercontent.com/USER/schalentier/main/install.sh | sh
+# Usage: curl -fsSL https://raw.githubusercontent.com/cosinusalpha/schalentier/main/install.sh | sh
 #
 # Environment variables:
 #   SCHALENTIER_INSTALL_DIR - Override install directory (default: ~/.local/bin)
@@ -65,30 +65,37 @@ get_download_url() {
     local os="$1"
     local arch="$2"
     local version="$3"
-    local base_url="https://github.com/USER/schalentier/releases"
+    local base_url="https://github.com/cosinusalpha/schalentier/releases"
 
-    # Build target triple
-    local target
+    # Map to release artifact name (raw binary)
+    local artifact
     case "$os" in
         linux)
-            target="${arch}-unknown-linux-musl"
+            case "$arch" in
+                x86_64)  artifact="schalentier-linux-x86_64" ;;
+                aarch64) artifact="schalentier-linux-aarch64" ;;
+                *) error "Unsupported Linux architecture: $arch" ;;
+            esac
             ;;
         macos)
-            if [ "$arch" = "aarch64" ]; then
-                target="aarch64-apple-darwin"
-            else
-                target="x86_64-apple-darwin"
-            fi
+            case "$arch" in
+                x86_64)  artifact="schalentier-darwin-x86_64" ;;
+                aarch64) artifact="schalentier-darwin-aarch64" ;;
+                *) error "Unsupported macOS architecture: $arch" ;;
+            esac
             ;;
         windows)
-            target="${arch}-pc-windows-msvc"
+            error "Windows install via script is not supported. Use 'cargo install schalentier' or download a release binary manually."
+            ;;
+        *)
+            error "Unsupported OS: $os"
             ;;
     esac
 
     if [ "$version" = "latest" ]; then
-        echo "${base_url}/latest/download/schalentier-${target}.tar.gz"
+        echo "${base_url}/latest/download/${artifact}"
     else
-        echo "${base_url}/download/${version}/schalentier-${target}.tar.gz"
+        echo "${base_url}/download/${version}/${artifact}"
     fi
 }
 
@@ -98,10 +105,6 @@ check_requirements() {
 
     if ! command -v curl >/dev/null 2>&1 && ! command -v wget >/dev/null 2>&1; then
         missing="${missing} curl/wget"
-    fi
-
-    if ! command -v tar >/dev/null 2>&1; then
-        missing="${missing} tar"
     fi
 
     if [ -n "$missing" ]; then
@@ -155,28 +158,15 @@ main() {
 
     # Get download URL
     local url=$(get_download_url "$os" "$arch" "$version")
-    local archive="$tmp_dir/schalentier.tar.gz"
+    local outfile="$tmp_dir/schalentier"
 
     # Download
-    if ! download "$url" "$archive"; then
+    if ! download "$url" "$outfile"; then
         error "Failed to download schalentier. Check your internet connection and try again."
     fi
 
-    # Extract
-    info "Extracting..."
-    tar -xzf "$archive" -C "$tmp_dir"
-
-    # Find the binary
-    local binary
-    if [ "$os" = "windows" ]; then
-        binary=$(find "$tmp_dir" -name "schalentier.exe" -type f | head -1)
-    else
-        binary=$(find "$tmp_dir" -name "schalentier" -type f ! -name "*.tar.gz" | head -1)
-    fi
-
-    if [ -z "$binary" ]; then
-        error "Could not find schalentier binary in archive"
-    fi
+    # Binary path
+    local binary="$outfile"
 
     # Install
     info "Installing to ${install_dir}..."

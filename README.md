@@ -62,8 +62,11 @@ No more "works on my machine." No more 47-step setup guides.
 ### Install
 
 ```bash
-# One-liner install (Linux/macOS)
-curl -fsSL https://raw.githubusercontent.com/user/schalentier/main/install.sh | bash
+# Install via Cargo (requires Rust toolchain)
+cargo install schalentier
+
+# One-liner install script (Linux/macOS)
+curl -fsSL https://raw.githubusercontent.com/cosinusalpha/schalentier/main/install.sh | bash
 
 # Or download the binary directly
 # Linux (static musl binary - works everywhere)
