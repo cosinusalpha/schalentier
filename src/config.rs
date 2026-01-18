@@ -221,8 +221,10 @@ mod tests {
 
     #[test]
     fn test_local_state_serialize_deserialize() {
-        let mut state = LocalState::default();
-        state.initialized = true;
+        let mut state = LocalState {
+            initialized: true,
+            ..Default::default()
+        };
         state.tools.insert(
             "ripgrep".to_string(),
             InstalledTool {

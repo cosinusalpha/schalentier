@@ -252,8 +252,10 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let data_dir = temp_dir.path();
 
-        let mut state = LocalState::default();
-        state.initialized = true;
+        let mut state = LocalState {
+            initialized: true,
+            ..Default::default()
+        };
         state.tools.insert(
             "test-tool".to_string(),
             InstalledTool {

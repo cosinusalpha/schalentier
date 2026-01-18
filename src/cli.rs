@@ -160,7 +160,7 @@ pub enum Commands {
 
     /// Manage dotfile and config file patching
     ///
-    /// Applies settings from [dotfiles] section in schalentier.toml to target config files.
+    /// Applies settings from `dotfiles` section in schalentier.toml to target config files.
     /// Supports JSON, TOML, YAML, INI, and KeyValue formats with intelligent merging.
     ///
     /// Examples:
