@@ -8,6 +8,14 @@ repository = "https://github.com/cosinusalpha/schalentier"
 homepage = "https://github.com/cosinusalpha/schalentier"
 keywords = ["cli", "package-manager", "dotfiles", "tools", "sync"]
 categories = ["command-line-utilities", "development-tools"]
+exclude = [
+	"img/*",
+	"tests/*",
+	".github/*",
+	".vscode/*",
+	"build-musl.sh",
+	"Cross.toml",
+]
 
 [dependencies]
 # CLI
