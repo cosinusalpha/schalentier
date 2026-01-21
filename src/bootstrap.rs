@@ -255,7 +255,30 @@ impl Bootstrap {
 
     /// Install uv
     async fn install_uv_component(&self, state: &mut LocalState) -> Result<()> {
+        // Check if uv is already available in PATH
+        if let Ok(path) = which::which("uv") {
+            if let Ok(output) = std::process::Command::new("uv").arg("--version").output() {
+                if output.status.success() {
+                    let version = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                    info!(
+                        "uv already installed at {} ({}), skipping download",
+                        path.display(),
+                        version
+                    );
+                    println!(
+                        "ℹ uv is already installed at {} ({}), skipping download",
+                        path.display(),
+                        version
+                    );
+                    state.bootstrap.uv_installed = true;
+                    state.bootstrap.uv_path = Some(self.paths.bin_dir.join("uv"));
+                    return Ok(());
+                }
+            }
+        }
+
         info!("Installing uv...");
+        println!("→ Installing uv...");
 
         let url = uv_url(self.arch, self.os)?;
         let archive_name = url.split('/').next_back().unwrap_or("uv-archive");
@@ -322,12 +345,39 @@ impl Bootstrap {
         state.bootstrap.uv_installed = true;
         state.bootstrap.uv_path = Some(uv_bin);
         info!("uv installation complete");
+        println!("✓ uv installed successfully");
         Ok(())
     }
 
     /// Install Miniforge
     async fn install_miniforge(&self, state: &mut LocalState) -> Result<()> {
+        // Check if conda is already available in PATH
+        if let Ok(path) = which::which("conda") {
+            if let Ok(output) = std::process::Command::new("conda")
+                .arg("--version")
+                .output()
+            {
+                if output.status.success() {
+                    let version = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                    info!(
+                        "conda already installed at {} ({}), skipping download",
+                        path.display(),
+                        version
+                    );
+                    println!(
+                        "ℹ conda is already installed at {} ({}), skipping download",
+                        path.display(),
+                        version
+                    );
+                    state.bootstrap.conda_installed = true;
+                    state.bootstrap.conda_path = Some(self.paths.conda_dir.clone());
+                    return Ok(());
+                }
+            }
+        }
+
         info!("Installing Miniforge...");
+        println!("→ Installing Miniforge...");
 
         let url = miniforge_url(self.arch, self.os)?;
         let installer_name = url.split('/').next_back().unwrap_or("miniforge-installer");
@@ -420,6 +470,7 @@ impl Bootstrap {
         state.bootstrap.conda_installed = true;
         state.bootstrap.conda_path = Some(self.paths.conda_dir.clone());
         info!("Miniforge installation complete");
+        println!("✓ Miniforge installed successfully");
         Ok(())
     }
 

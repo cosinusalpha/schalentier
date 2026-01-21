@@ -7,6 +7,7 @@ use schalentier::{
     bootstrap::{get_arch, get_os, Bootstrap},
     cli::{ConfigAction, SnippetAction},
     config::{InstalledTool, ToolEntry, ToolStatus},
+    detection::ToolDetector,
     dotfiles::{ApplyAction, DotfileManager},
     error::{self, print_info, print_success, print_warning},
     provider::create_default_registry,
@@ -154,12 +155,12 @@ async fn cmd_init(force: bool, yes: bool, skip_bootstrap: bool) -> Result<()> {
         print_info("Skipping bootstrap (no uv or conda will be installed)");
     }
 
+    // Save state (also ensures data_dir exists)
+    state.save()?;
+
     // Write environment scripts
     let data_dir = default_data_dir()?;
     write_env_scripts(&data_dir)?;
-
-    // Save state
-    state.save()?;
 
     // Create default config if it doesn't exist
     let config = SchalentierConfig::load()?;
@@ -184,6 +185,57 @@ fn prompt_init_options() -> Result<(bool, bool)> {
     println!("\nWelcome to schalentier!\n");
     println!("This will set up your cross-platform package manager.\n");
 
+    // Detect installed tools
+    let detection = ToolDetector::detect_all();
+
+    // Display detection results
+    println!("{}System Tools Detected", "═".repeat(35));
+    println!();
+    for tool in detection.all() {
+        if tool.available {
+            let version_str = tool
+                .version
+                .as_ref()
+                .map(|v| format!(" ({})", v))
+                .unwrap_or_default();
+            println!("✓ {}{}", tool.name, version_str);
+        } else {
+            println!("✗ {}", tool.name);
+        }
+    }
+    println!();
+
+    // Show recommendations based on detections
+    if detection.has_alternative_tools() {
+        println!("You already have access to several package managers.");
+        println!("Bootstrapping uv and conda is optional.");
+        println!();
+    }
+
+    // Prepare default selections based on what's already installed
+    let mut defaults = vec![];
+    let mut default_uv = true;
+    let mut default_conda = true;
+
+    if detection.uv.available {
+        println!("ℹ uv is already installed. Skipping by default.");
+        default_uv = false;
+    }
+
+    if detection.conda.available {
+        println!("ℹ conda/mamba is already installed. Skipping by default.");
+        default_conda = false;
+    }
+
+    if default_uv {
+        defaults.push(0);
+    }
+    if default_conda {
+        defaults.push(1);
+    }
+
+    println!();
+
     // Ask about bootstrap components
     let components = [
         (
@@ -195,8 +247,6 @@ fn prompt_init_options() -> Result<(bool, bool)> {
             "Miniforge/Conda - Scientific packages and isolated environments",
         ),
     ];
-
-    let defaults = vec![0, 1]; // Both selected by default
 
     let selections = MultiSelect::new(
         "Which package managers should be bootstrapped?",

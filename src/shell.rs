@@ -151,6 +151,12 @@ pub fn generate_env_script(shell: ShellType, data_dir: &Path) -> String {
 pub fn write_env_scripts(data_dir: &Path) -> Result<()> {
     debug!("Writing environment scripts to {}", data_dir.display());
 
+    // Ensure data directory exists
+    if !data_dir.exists() {
+        std::fs::create_dir_all(data_dir)
+            .with_context(|| format!("Failed to create directory: {}", data_dir.display()))?;
+    }
+
     // Write all shell scripts
     for shell in [ShellType::Bash, ShellType::Fish, ShellType::PowerShell] {
         let content = generate_env_script(shell, data_dir);
@@ -261,6 +267,20 @@ mod tests {
         let data_dir = temp_dir.path();
 
         write_env_scripts(data_dir).unwrap();
+
+        assert!(data_dir.join("env.sh").exists());
+        assert!(data_dir.join("env.fish").exists());
+        assert!(data_dir.join("env.ps1").exists());
+    }
+
+    #[test]
+    fn test_write_env_scripts_creates_dir() {
+        let temp_dir = TempDir::new().unwrap();
+        let data_dir = temp_dir.path().join("subdir");
+
+        assert!(!data_dir.exists());
+        write_env_scripts(&data_dir).unwrap();
+        assert!(data_dir.exists());
 
         assert!(data_dir.join("env.sh").exists());
         assert!(data_dir.join("env.fish").exists());
