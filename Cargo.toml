@@ -38,7 +38,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 serde_yaml = "0.9"
-toml = "0.9"
+toml = "1.1"
 
 # HTTP client (for downloads) - using rustls with aws-lc-rs crypto
 # Requires C compiler at build time, but produces static binary with no runtime deps
@@ -57,7 +57,7 @@ dirs = "6"
 # Archive extraction (pure Rust only - no C dependencies)
 flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
 tar = "0.4"
-zip = { version = "7", default-features = false, features = ["deflate"] }
+zip = { version = "8", default-features = false, features = ["deflate"] }
 # Note: bzip2 and xz support removed to avoid C dependencies
 # Most modern releases use .tar.gz or .zip anyway
 
