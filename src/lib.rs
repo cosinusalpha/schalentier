@@ -2,6 +2,7 @@ pub mod archive;
 pub mod bootstrap;
 pub mod cli;
 pub mod config;
+pub mod detection;
 pub mod dotfiles;
 pub mod error;
 pub mod logging;
