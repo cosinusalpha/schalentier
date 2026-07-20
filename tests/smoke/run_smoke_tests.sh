@@ -42,6 +42,7 @@ section() {
 cleanup() {
     rm -rf ~/.schalentier 2>/dev/null || true
     rm -f ~/.config/schalentier.toml 2>/dev/null || true
+    rm -rf ~/.config/schalentier 2>/dev/null || true
 }
 
 #=============================================================================
@@ -65,7 +66,7 @@ else
 fi
 
 # Test 3: All subcommands have help
-for cmd in init add remove list search sync update doctor; do
+for cmd in init add remove list search sync update doctor secret registry audit config alias snippet completions; do
     if schalentier $cmd --help > /dev/null 2>&1; then
         pass "Subcommand '$cmd' has help"
     else
@@ -78,8 +79,9 @@ section "Initialization Tests"
 
 cleanup
 
-# Test 4: Init creates directories (use --yes for non-interactive)
-if schalentier init --yes 2>/dev/null; then
+# Test 4: Init creates directories (--yes for non-interactive; --skip-bootstrap to
+# avoid downloading real toolchains like node/go, which is slow and flaky in a container)
+if schalentier init --yes --skip-bootstrap 2>/dev/null; then
     if [ -d ~/.schalentier ]; then
         pass "Init creates ~/.schalentier directory"
     else
@@ -96,24 +98,37 @@ else
     fail "Init creates state file" "local_state.json not found"
 fi
 
-# Test 6: State file has correct permissions (Unix only)
-if [ "$(uname)" != "Windows_NT" ]; then
-    perms=$(stat -c %a ~/.schalentier/local_state.json 2>/dev/null || stat -f %Lp ~/.schalentier/local_state.json 2>/dev/null)
-    if [ "$perms" = "600" ]; then
-        pass "State file has 0600 permissions"
-    else
-        fail "State file permissions" "Expected 600, got $perms"
-    fi
+# Test 6: State file has correct permissions
+perms=$(stat -c %a ~/.schalentier/local_state.json 2>/dev/null || stat -f %Lp ~/.schalentier/local_state.json 2>/dev/null)
+if [ "$perms" = "600" ]; then
+    pass "State file has 0600 permissions"
+else
+    fail "State file permissions" "Expected 600, got $perms"
 fi
 
 # Test 7: Shell scripts created
-for script in env.sh env.fish env.ps1; do
+for script in env.sh env.fish; do
     if [ -f ~/.schalentier/$script ]; then
         pass "Init creates $script"
     else
         fail "Init creates $script" "File not found"
     fi
 done
+
+# Test 7b: --setup-shell appends a source line to the rc file, idempotently
+schalentier init --yes --setup-shell --skip-bootstrap --force > /dev/null 2>&1 || true
+if [ -f ~/.bashrc ] && grep -q "env.sh" ~/.bashrc; then
+    pass "Init --setup-shell sources env.sh from ~/.bashrc"
+else
+    fail "Init --setup-shell" "~/.bashrc missing or doesn't source env.sh"
+fi
+schalentier init --yes --setup-shell --skip-bootstrap --force > /dev/null 2>&1 || true
+SOURCE_LINE_COUNT=$(grep -c 'source "/.*env.sh"' ~/.bashrc 2>/dev/null || echo 0)
+if [ "$SOURCE_LINE_COUNT" = "1" ]; then
+    pass "Init --setup-shell is idempotent (no duplicate source line)"
+else
+    fail "Init --setup-shell idempotency" "Expected 1 source line for env.sh in ~/.bashrc, got $SOURCE_LINE_COUNT"
+fi
 
 # Test 8: Re-init without --force fails
 # Capture to variable to avoid SIGPIPE
@@ -275,6 +290,96 @@ else
 fi
 
 #=============================================================================
+section "Gist Sync Tests (mocked GitHub API)"
+
+# Requires: python3 (for the mock server) and a master password (secret store).
+MOCK_SERVER="/run_mock_gist_server.py"
+if [ ! -f "$MOCK_SERVER" ]; then
+    MOCK_SERVER="$(dirname "$0")/mock_gist_server.py"
+fi
+
+if [ -z "${SCHALENTIER_MASTER_PASSWORD:-}" ]; then
+    skip "Gist sync tests" "SCHALENTIER_MASTER_PASSWORD not set"
+elif ! command -v python3 > /dev/null 2>&1; then
+    skip "Gist sync tests" "python3 not available for mock server"
+elif [ ! -f "$MOCK_SERVER" ]; then
+    skip "Gist sync tests" "mock_gist_server.py not found"
+else
+    # Start the in-memory mock GitHub Gists API.
+    python3 "$MOCK_SERVER" 8099 > /tmp/mock_gist.log 2>&1 &
+    MOCK_PID=$!
+    export SCHALENTIER_GITHUB_API_BASE="http://127.0.0.1:8099"
+
+    # Wait for the mock to accept connections.
+    mock_ready=0
+    for _ in $(seq 1 20); do
+        if curl -s --connect-timeout 1 http://127.0.0.1:8099/gists/nope > /dev/null 2>&1; then
+            mock_ready=1; break
+        fi
+        sleep 0.2
+    done
+
+    if [ "$mock_ready" -ne 1 ]; then
+        skip "Gist sync tests" "mock server did not start"
+    else
+        cleanup
+        mkdir -p ~/.config/schalentier
+        cat > ~/.config/schalentier/schalentier.toml << 'GISTCFG'
+[tools]
+
+[dotfiles."~/.config/gist-marker/marker.env"]
+GIST_ROUNDTRIP = "ok"
+GISTCFG
+        schalentier secret set GITHUB_TOKEN --value ghp_fake_smoke > /dev/null 2>&1
+
+        # Push: create a new gist and capture its id.
+        GIST_PUSH=$(schalentier sync --remote gist://new --push 2>&1 || true)
+        GID=$(echo "$GIST_PUSH" | grep -oE "gist://mock[0-9]+" | head -1)
+        if echo "$GIST_PUSH" | grep -qi "created secret gist" && [ -n "$GID" ]; then
+            pass "Gist push creates a new gist"
+        else
+            fail "Gist push" "Expected 'Created secret gist', got: $GIST_PUSH"
+        fi
+
+        # The mock stores ciphertext; confirm the pushed content is NOT plaintext.
+        if [ -n "$GID" ]; then
+            RAW=$(curl -s "http://127.0.0.1:8099/gists/${GID#gist://}" || true)
+            if echo "$RAW" | grep -q "BEGIN AGE ENCRYPTED FILE"; then
+                pass "Gist content is age-encrypted"
+            else
+                fail "Gist encryption" "Pushed gist content is not age-encrypted"
+            fi
+            if echo "$RAW" | grep -q "GIST_ROUNDTRIP"; then
+                fail "Gist encryption" "Plaintext config leaked into gist!"
+            else
+                pass "Gist does not leak plaintext config"
+            fi
+        fi
+
+        # Pull on a fresh state: config should be restored and the dotfile applied.
+        if [ -n "$GID" ]; then
+            cleanup
+            mkdir -p ~/.config/schalentier
+            schalentier secret set GITHUB_TOKEN --value ghp_fake_smoke > /dev/null 2>&1
+            GIST_PULL=$(schalentier sync --remote "$GID" --pull 2>&1 || true)
+            if echo "$GIST_PULL" | grep -qi "downloaded and decrypted"; then
+                pass "Gist pull downloads and decrypts config"
+            else
+                fail "Gist pull" "Expected 'Downloaded and decrypted', got: $GIST_PULL"
+            fi
+            if grep -q 'GIST_ROUNDTRIP' ~/.config/schalentier/schalentier.toml 2>/dev/null; then
+                pass "Gist pull restores config content"
+            else
+                fail "Gist pull content" "Restored config missing expected marker"
+            fi
+        fi
+    fi
+
+    kill "$MOCK_PID" 2>/dev/null || true
+    unset SCHALENTIER_GITHUB_API_BASE
+fi
+
+#=============================================================================
 section "Add/Install Tests"
 
 # Test 22: Add with --no-install adds to config only
@@ -298,6 +403,35 @@ if echo "$REMOVE_OUTPUT" | grep -qi "removed\|not found\|not installed"; then
     pass "Remove command works"
 else
     fail "Remove command" "Should remove or report tool status"
+fi
+
+#=============================================================================
+section "Real Install Tests (binary provider, needs network)"
+
+GITHUB_RATE_REMAINING=$(curl -s --connect-timeout 5 https://api.github.com/rate_limit 2>/dev/null \
+    | grep -o '"remaining":[0-9]*' | head -1 | grep -o '[0-9]*' || echo 0)
+if [ "${GITHUB_RATE_REMAINING:-0}" -gt 5 ] 2>/dev/null; then
+    # Test: install a registry-known tool (fd) via the binary provider — downloads a
+    # real GitHub release, extracts it, and drops a runnable binary in bin/.
+    schalentier add fd --provider binary > /dev/null 2>&1 || true
+    if [ -x ~/.schalentier/bin/fd ] && ~/.schalentier/bin/fd --version > /dev/null 2>&1; then
+        pass "Install fd (registry, binary provider) produces a runnable binary"
+    else
+        fail "Install fd" "~/.schalentier/bin/fd missing or not runnable"
+    fi
+    schalentier remove fd > /dev/null 2>&1 || true
+
+    # Test: install a tool NOT in the registry (micro) — exercises the
+    # search-providers-then-legacy-install fallback path (B2).
+    schalentier add micro --provider binary > /dev/null 2>&1 || true
+    if [ -x ~/.schalentier/bin/micro ] && ~/.schalentier/bin/micro --version > /dev/null 2>&1; then
+        pass "Install micro (non-registry, binary provider) produces a runnable binary"
+    else
+        fail "Install micro" "~/.schalentier/bin/micro missing or not runnable"
+    fi
+    schalentier remove micro > /dev/null 2>&1 || true
+else
+    skip "Real install tests" "No network to api.github.com or unauthenticated rate limit exhausted (${GITHUB_RATE_REMAINING:-0} remaining)"
 fi
 
 #=============================================================================
@@ -574,6 +708,324 @@ fi
 
 # Cleanup test dotfiles
 rm -rf "$TEST_DOTFILES_DIR"
+
+#=============================================================================
+section "Secrets Tests (Task 7.1)"
+
+# Secret tests rely on SCHALENTIER_MASTER_PASSWORD to avoid the interactive prompt.
+if [ -z "${SCHALENTIER_MASTER_PASSWORD:-}" ]; then
+    skip "Secrets tests" "SCHALENTIER_MASTER_PASSWORD not set"
+else
+    # Test: secret set (non-interactive via --value)
+    SECRET_SET=$(schalentier secret set SMOKE_TOKEN --value "s3cr3t-value" --tags smoke,ci 2>&1 || true)
+    if echo "$SECRET_SET" | grep -qi "saved\|added"; then
+        pass "Secret set stores a value"
+    else
+        fail "Secret set" "Expected 'saved' confirmation, got: $SECRET_SET"
+    fi
+
+    # Test: secrets.enc file created (encrypted, in config dir)
+    if [ -f ~/.config/schalentier/secrets.enc ]; then
+        pass "Secret set creates secrets.enc"
+    else
+        fail "secrets.enc" "Encrypted store not created"
+    fi
+
+    # Test: secret get round-trips the value
+    SECRET_GET=$(schalentier secret get SMOKE_TOKEN 2>/dev/null || true)
+    if [ "$SECRET_GET" = "s3cr3t-value" ]; then
+        pass "Secret get returns stored value"
+    else
+        fail "Secret get" "Expected 's3cr3t-value', got: '$SECRET_GET'"
+    fi
+
+    # Test: secrets.enc does NOT contain the plaintext (it is encrypted)
+    if grep -q "s3cr3t-value" ~/.config/schalentier/secrets.enc 2>/dev/null; then
+        fail "Secret encryption" "Plaintext value found in secrets.enc!"
+    else
+        pass "Secret value is encrypted at rest"
+    fi
+
+    # Test: secret list shows the name
+    SECRET_LIST=$(schalentier secret list 2>&1 || true)
+    if echo "$SECRET_LIST" | grep -q "SMOKE_TOKEN"; then
+        pass "Secret list shows secret name"
+    else
+        fail "Secret list" "SMOKE_TOKEN not listed"
+    fi
+
+    # Test: secret export emits a valid bash export line
+    SECRET_EXPORT=$(schalentier secret export --shell bash 2>&1 || true)
+    if echo "$SECRET_EXPORT" | grep -q 'export SMOKE_TOKEN="s3cr3t-value"'; then
+        pass "Secret export emits bash syntax"
+    else
+        fail "Secret export" "Missing/incorrect export line: $SECRET_EXPORT"
+    fi
+
+    # Test: secret run injects the secret into the child environment
+    SECRET_RUN=$(schalentier secret run -- bash -c 'echo $SMOKE_TOKEN' 2>/dev/null || true)
+    if echo "$SECRET_RUN" | grep -q "s3cr3t-value"; then
+        pass "Secret run injects env var"
+    else
+        fail "Secret run" "SMOKE_TOKEN not in child env: '$SECRET_RUN'"
+    fi
+
+    # Test: tag filtering excludes non-matching secrets
+    schalentier secret set OTHER_TOKEN --value "other" --tags prod > /dev/null 2>&1 || true
+    SECRET_TAGGED=$(schalentier secret export --tags smoke 2>&1 || true)
+    if echo "$SECRET_TAGGED" | grep -q "SMOKE_TOKEN" && ! echo "$SECRET_TAGGED" | grep -q "OTHER_TOKEN"; then
+        pass "Secret export --tags filters by tag"
+    else
+        fail "Secret tag filter" "Tag filtering did not work as expected"
+    fi
+
+    # Test: secret delete removes it
+    schalentier secret delete SMOKE_TOKEN > /dev/null 2>&1 || true
+    if ! schalentier secret list 2>&1 | grep -q "SMOKE_TOKEN"; then
+        pass "Secret delete removes secret"
+    else
+        fail "Secret delete" "SMOKE_TOKEN still present after delete"
+    fi
+fi
+
+#=============================================================================
+section "Registry Tests"
+
+# Test: registry validate (offline, bundled registry)
+REGISTRY_VALIDATE=$(schalentier registry validate 2>&1 || true)
+if echo "$REGISTRY_VALIDATE" | grep -qi "valid\|package count"; then
+    pass "Registry validate passes"
+else
+    fail "Registry validate" "Bundled registry did not validate: $REGISTRY_VALIDATE"
+fi
+
+# Test: registry info shows stats
+REGISTRY_INFO=$(schalentier registry info 2>&1 || true)
+if echo "$REGISTRY_INFO" | grep -qi "total packages\|packages by provider"; then
+    pass "Registry info shows statistics"
+else
+    fail "Registry info" "No statistics in output"
+fi
+
+#=============================================================================
+section "Multi-Provider Resolution Tests"
+
+# Test: add --dry-run for a registry package shows providers, installs nothing
+ADD_DRYRUN=$(schalentier add ripgrep --dry-run 2>&1 || true)
+if echo "$ADD_DRYRUN" | grep -qi "available in.*provider\|dry run.*would install"; then
+    pass "Add --dry-run shows provider resolution"
+else
+    fail "Add --dry-run" "Expected provider list / dry-run notice: $ADD_DRYRUN"
+fi
+
+# Test: dry-run must NOT add the tool to config
+if ! grep -q "ripgrep" ~/.config/schalentier/schalentier.toml 2>/dev/null; then
+    pass "Add --dry-run does not modify config"
+else
+    fail "Add --dry-run isolation" "ripgrep was added to config during dry-run"
+fi
+
+# Test: dry-run for a NON-registry package must also install nothing (regression:
+# cmd_add_legacy previously ignored --dry-run and actually installed).
+ADD_DRYRUN_LEGACY=$(schalentier add zzz-nonexistent-smoke-pkg --dry-run 2>&1 || true)
+if echo "$ADD_DRYRUN_LEGACY" | grep -qi "dry run"; then
+    pass "Add --dry-run works for non-registry packages"
+else
+    fail "Add --dry-run (legacy path)" "Non-registry dry-run did not short-circuit: $ADD_DRYRUN_LEGACY"
+fi
+
+#=============================================================================
+section "Security Audit Tests (OSV.dev)"
+
+# Test: audit command runs with no installed packages
+AUDIT_EMPTY=$(schalentier audit 2>&1 || true)
+if echo "$AUDIT_EMPTY" | grep -qi "no packages to audit\|running security audit"; then
+    pass "Audit runs (empty state)"
+else
+    fail "Audit empty" "Unexpected output: $AUDIT_EMPTY"
+fi
+
+# Test: audit a specific package (requires network to reach OSV.dev)
+if curl -s --connect-timeout 5 https://api.osv.dev > /dev/null 2>&1; then
+    # black 21.12b0 has known advisories in the PyPI ecosystem.
+    schalentier add black --no-install > /dev/null 2>&1 || true
+    AUDIT_BLACK=$(schalentier audit black 2>&1 || true)
+    if echo "$AUDIT_BLACK" | grep -qi "advisor\|vulnerab\|clean\|skipped"; then
+        pass "Audit queries OSV.dev for a package"
+    else
+        fail "Audit package" "No recognizable audit output: $AUDIT_BLACK"
+    fi
+
+    # Test: second audit of the same package should be served from cache (near-instant,
+    # no OSV.dev round-trip) rather than re-querying every time.
+    CACHE_FILE="$HOME/.schalentier/osv_cache.json"
+    if [ -f "$CACHE_FILE" ]; then
+        START_MS=$(date +%s%3N)
+        schalentier audit black > /dev/null 2>&1 || true
+        END_MS=$(date +%s%3N)
+        ELAPSED=$((END_MS - START_MS))
+        if [ "$ELAPSED" -lt 1000 ]; then
+            pass "Second audit served from cache (${ELAPSED}ms)"
+        else
+            fail "Audit cache" "Second audit took ${ELAPSED}ms, expected a fast cache hit"
+        fi
+
+        # Test: --refresh bypasses the cache and re-queries OSV.dev.
+        REFRESH_OUT=$(schalentier audit black --refresh 2>&1 || true)
+        if echo "$REFRESH_OUT" | grep -qi "advisor\|vulnerab\|clean\|skipped"; then
+            pass "Audit --refresh bypasses cache"
+        else
+            fail "Audit --refresh" "Unexpected output: $REFRESH_OUT"
+        fi
+    else
+        fail "Audit cache" "Expected $CACHE_FILE to exist after first audit"
+    fi
+
+    schalentier remove black > /dev/null 2>&1 || true
+else
+    skip "Audit OSV.dev query" "No network connectivity to api.osv.dev"
+fi
+
+#=============================================================================
+section "Templating Tests (Task 7.2)"
+
+# Rendered templated dotfile using the {{ hostname }} / {{ var.* }} context.
+TEST_TMPL_DIR="$HOME/.config/test-template"
+mkdir -p "$TEST_TMPL_DIR"
+
+cat > "$HOME/.config/schalentier/schalentier.toml" << 'TMPLCFG'
+[tools]
+
+[variables]
+editor = "micro"
+
+[dotfiles."~/.config/test-template/rendered.env"]
+_template = true
+EDITOR = "{{ var.editor }}"
+HOST = "{{ hostname }}"
+TMPLCFG
+
+TMPL_APPLY=$(schalentier config apply 2>&1 || true)
+if [ -f "$TEST_TMPL_DIR/rendered.env" ]; then
+    # var.editor must be substituted; the literal Jinja braces must be gone.
+    if grep -q "EDITOR=micro" "$TEST_TMPL_DIR/rendered.env" 2>/dev/null \
+       || grep -q "EDITOR = micro" "$TEST_TMPL_DIR/rendered.env" 2>/dev/null; then
+        if ! grep -q "{{" "$TEST_TMPL_DIR/rendered.env" 2>/dev/null; then
+            pass "Template renders {{ var.* }} into dotfile"
+        else
+            fail "Template rendering" "Unrendered '{{' left in output"
+        fi
+    else
+        fail "Template var substitution" "var.editor not substituted"
+    fi
+else
+    fail "Template apply" "rendered.env not created: $TMPL_APPLY"
+fi
+
+# hostname must be a non-empty concrete value, not the literal template.
+if grep -qE "HOST ?= ?.+" "$TEST_TMPL_DIR/rendered.env" 2>/dev/null \
+   && ! grep -q "{{ hostname }}" "$TEST_TMPL_DIR/rendered.env" 2>/dev/null; then
+    pass "Template renders {{ hostname }} to a concrete value"
+else
+    fail "Template hostname" "hostname not rendered"
+fi
+
+# Template with {{ secret.* }} and {{ env.* }} (needs the secret store).
+if [ -n "${SCHALENTIER_MASTER_PASSWORD:-}" ]; then
+    schalentier secret set TPL_SECRET --value "sk-tpl-99" > /dev/null 2>&1
+    cat > "$HOME/.config/schalentier/schalentier.toml" << 'TMPLCFG2'
+[tools]
+
+[dotfiles."~/.config/test-template/secret.env"]
+_template = true
+KEY = "{{ secret.TPL_SECRET }}"
+HOME_DIR = "{{ env.HOME }}"
+TMPLCFG2
+    schalentier config apply > /dev/null 2>&1 || true
+    if grep -q "KEY=sk-tpl-99" "$TEST_TMPL_DIR/secret.env" 2>/dev/null \
+       || grep -q "KEY = sk-tpl-99" "$TEST_TMPL_DIR/secret.env" 2>/dev/null; then
+        pass "Template renders {{ secret.* }} to decrypted value"
+    else
+        fail "Template secret" "secret not substituted in template"
+    fi
+    if grep -qE "HOME_DIR ?= ?/" "$TEST_TMPL_DIR/secret.env" 2>/dev/null; then
+        pass "Template renders {{ env.* }} to environment value"
+    else
+        fail "Template env" "env var not substituted in template"
+    fi
+    schalentier secret delete TPL_SECRET > /dev/null 2>&1 || true
+else
+    skip "Template secret/env" "SCHALENTIER_MASTER_PASSWORD not set"
+fi
+
+rm -rf "$TEST_TMPL_DIR"
+
+#=============================================================================
+section "Config Reset / Backup Tests"
+
+TEST_RESET_DIR="$HOME/.config/test-reset"
+mkdir -p "$TEST_RESET_DIR"
+# Pre-existing file with a user value we expect to be restored.
+echo '{"color":"original","user_key":"keep"}' > "$TEST_RESET_DIR/cfg.json"
+
+cat > "$HOME/.config/schalentier/schalentier.toml" << 'RESETCFG'
+[tools]
+
+[dotfiles."~/.config/test-reset/cfg.json"]
+color = "patched"
+RESETCFG
+
+schalentier config apply > /dev/null 2>&1 || true
+
+# A backup of the original should exist after the first patch.
+if [ -f "$TEST_RESET_DIR/cfg.json.schalentier-backup" ]; then
+    pass "Config apply creates a backup"
+else
+    fail "Config backup" "No .schalentier-backup created"
+fi
+
+# The patch should have taken effect.
+if grep -q "patched" "$TEST_RESET_DIR/cfg.json" 2>/dev/null; then
+    pass "Config apply patched the file"
+else
+    fail "Config patch" "Patch value not applied"
+fi
+
+# Reset should restore the original content.
+schalentier config reset "~/.config/test-reset/cfg.json" > /dev/null 2>&1 || true
+if grep -q "original" "$TEST_RESET_DIR/cfg.json" 2>/dev/null \
+   && ! grep -q "patched" "$TEST_RESET_DIR/cfg.json" 2>/dev/null; then
+    pass "Config reset restores from backup"
+else
+    fail "Config reset" "File not restored to original"
+fi
+
+rm -rf "$TEST_RESET_DIR"
+
+#=============================================================================
+section "Provider Selection Tests"
+
+# Requesting an unavailable/unknown provider for a registry package should fail
+# clearly rather than silently installing via another provider.
+PROV_ERR=$(schalentier add ripgrep --provider nonexistentprovider --dry-run 2>&1 || true)
+if echo "$PROV_ERR" | grep -qiE "not available|unknown|available:|provider"; then
+    pass "Add with unavailable provider reports clearly"
+else
+    fail "Provider selection" "Unexpected output for bad provider: $PROV_ERR"
+fi
+
+#=============================================================================
+section "Completions Tests"
+
+# Test: completions generate for each supported shell
+for sh in bash zsh fish; do
+    COMP_OUT=$(schalentier completions $sh 2>&1 || true)
+    if echo "$COMP_OUT" | grep -qi "schalentier"; then
+        pass "Completions generate for $sh"
+    else
+        fail "Completions $sh" "No completion output for $sh"
+    fi
+done
 
 #=============================================================================
 section "Error Handling Tests"

@@ -155,8 +155,13 @@ impl Installer for BrewProvider {
     }
 
     async fn search(&self, query: &str, limit: usize) -> Result<Vec<SearchResult>> {
-        // Use brew search --json (if available) or parse text output
-        let output = self.run_brew_command(&["search", query])?;
+        // Use brew search --json (if available) or parse text output. `brew search`
+        // exits non-zero when nothing matches ("No formulae or casks found") — that's
+        // an empty result, not a search failure, so don't propagate it as an error.
+        let output = match self.run_brew_command(&["search", query]) {
+            Ok(output) => output,
+            Err(_) => return Ok(Vec::new()),
+        };
 
         // Parse the output - one package per line
         let mut results: Vec<SearchResult> = output

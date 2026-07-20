@@ -96,8 +96,7 @@ fn extract_tar_archive<R: Read>(archive: &mut Archive<R>, dest_dir: &Path) -> Re
 
         entry.unpack(&dest_path)?;
 
-        // Set executable permission on Unix for files that had it
-        #[cfg(unix)]
+        // Set executable permission for files that had it
         {
             use std::os::unix::fs::PermissionsExt;
             if let Ok(mode) = entry.header().mode() {
@@ -160,8 +159,7 @@ fn extract_zip(archive_path: &Path, dest_dir: &Path) -> Result<Vec<PathBuf>> {
             let mut outfile = File::create(&outpath)?;
             io::copy(&mut file, &mut outfile)?;
 
-            // Set executable permission on Unix
-            #[cfg(unix)]
+            // Set executable permission
             {
                 use std::os::unix::fs::PermissionsExt;
                 if let Some(mode) = file.unix_mode() {
@@ -219,7 +217,6 @@ pub fn find_binary(extracted_files: &[PathBuf], name: &str) -> Option<PathBuf> {
 }
 
 /// Find any executable files in the extracted files
-#[cfg(unix)]
 pub fn find_executables(extracted_files: &[PathBuf]) -> Vec<PathBuf> {
     use std::os::unix::fs::PermissionsExt;
 
@@ -233,20 +230,6 @@ pub fn find_executables(extracted_files: &[PathBuf]) -> Vec<PathBuf> {
                 }
             }
             false
-        })
-        .cloned()
-        .collect()
-}
-
-#[cfg(not(unix))]
-pub fn find_executables(extracted_files: &[PathBuf]) -> Vec<PathBuf> {
-    // On Windows, look for .exe files
-    extracted_files
-        .iter()
-        .filter(|path| {
-            path.extension()
-                .map(|ext| ext.to_str() == Some("exe"))
-                .unwrap_or(false)
         })
         .cloned()
         .collect()

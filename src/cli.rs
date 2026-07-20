@@ -30,6 +30,11 @@ pub enum Commands {
         /// Skip bootstrap (don't install uv or conda)
         #[arg(long)]
         skip_bootstrap: bool,
+
+        /// Add schalentier's environment setup to your shell config (~/.bashrc etc.)
+        /// without prompting
+        #[arg(long)]
+        setup_shell: bool,
     },
 
     /// Add a tool or package to your configuration
@@ -72,6 +77,14 @@ pub enum Commands {
         /// Show what would be synced without making changes
         #[arg(long)]
         dry_run: bool,
+
+        /// Create/update as public gist (default: secret)
+        #[arg(long, conflicts_with = "secret")]
+        public: bool,
+
+        /// Create/update as secret gist (explicit override)
+        #[arg(long, conflicts_with = "public")]
+        secret: bool,
     },
 
     /// Update installed tools to their latest versions
@@ -82,6 +95,10 @@ pub enum Commands {
         /// Check for updates without installing
         #[arg(long)]
         dry_run: bool,
+
+        /// Update even tools pinned to a specific version in schalentier.toml
+        #[arg(long)]
+        force: bool,
     },
 
     /// Check system health and diagnose issues
@@ -111,6 +128,11 @@ pub enum Commands {
         /// Filter by provider
         #[arg(short, long)]
         provider: Option<String>,
+
+        /// Show cached security advisory status per tool (no network call; run
+        /// `schalentier audit` first to populate the cache)
+        #[arg(long)]
+        security: bool,
     },
 
     /// Search for available packages across all providers
@@ -184,6 +206,57 @@ pub enum Commands {
         #[arg(value_enum)]
         shell: Shell,
     },
+
+    /// Manage encrypted secrets (age + OS keyring)
+    ///
+    /// Examples:
+    ///   schalentier secret set GITHUB_TOKEN --tags work,ci
+    ///   schalentier secret export --tags work
+    ///   schalentier secret shell --tags ci
+    ///   schalentier secret run --tags ci -- ./deploy.sh
+    Secret {
+        #[command(subcommand)]
+        action: SecretAction,
+    },
+
+    /// Manage package registry
+    ///
+    /// Examples:
+    ///   schalentier registry validate  # Validate registry format
+    ///   schalentier registry info      # Show registry statistics
+    ///   schalentier registry update    # Download latest from GitHub
+    Registry {
+        #[command(subcommand)]
+        action: RegistryAction,
+    },
+
+    /// Check installed packages for security vulnerabilities
+    ///
+    /// Audits packages for known vulnerabilities via OSV.dev
+    ///
+    /// Examples:
+    ///   schalentier audit              # Check all installed packages
+    ///   schalentier audit ripgrep      # Check specific package
+    Audit {
+        /// Specific package to audit (optional, audits all if not specified)
+        package: Option<String>,
+
+        /// Bypass the cache and re-query OSV.dev for every package
+        #[arg(long)]
+        refresh: bool,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+pub enum RegistryAction {
+    /// Validate registry format and show errors
+    Validate,
+
+    /// Show registry statistics (package count, provider distribution)
+    Info,
+
+    /// Download latest registry from GitHub
+    Update,
 }
 
 #[derive(Subcommand, Debug)]
@@ -205,6 +278,94 @@ pub enum SnippetAction {
     Remove {
         /// Name of the snippet to remove
         name: String,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+pub enum SecretAction {
+    /// Store a secret (prompts for value if --value not given)
+    ///
+    /// When run inside a project with a `.schalentier/` directory, secrets are
+    /// stored in the project-local store by default. Use --global to force the
+    /// global (~/.config/schalentier/) store instead.
+    Set {
+        /// Name of the secret
+        name: String,
+
+        /// Value to store (prompts interactively if omitted)
+        #[arg(long)]
+        value: Option<String>,
+
+        /// Comma-separated tags to attach (e.g. work,ci)
+        #[arg(long, value_delimiter = ',')]
+        tags: Vec<String>,
+
+        /// Force the global secret store, even inside a project directory
+        #[arg(long)]
+        global: bool,
+    },
+
+    /// Print a secret's value to stdout (no trailing newline)
+    ///
+    /// Project secrets take precedence over global secrets with the same name.
+    Get {
+        /// Name of the secret
+        name: String,
+    },
+
+    /// List secret names (and their tags)
+    ///
+    /// Shows a "Project secrets" / "Global secrets" split when run inside a
+    /// project with a `.schalentier/` directory.
+    List {
+        /// Only show secrets matching any of these tags
+        #[arg(long, value_delimiter = ',')]
+        tags: Option<Vec<String>>,
+    },
+
+    /// Remove a secret
+    Delete {
+        /// Name of the secret
+        name: String,
+
+        /// Force the global secret store, even inside a project directory
+        #[arg(long)]
+        global: bool,
+    },
+
+    /// Output shell export statements for eval/source
+    Export {
+        /// Shell syntax to emit
+        #[arg(long, default_value = "bash")]
+        shell: String,
+
+        /// Only export secrets matching any of these tags
+        #[arg(long, value_delimiter = ',')]
+        tags: Option<Vec<String>>,
+    },
+
+    /// Decrypt secrets, open in $EDITOR, then re-encrypt
+    Edit,
+
+    /// Re-encrypt all secrets with a new master password
+    ChangePassword,
+
+    /// Spawn a shell with secrets exported as environment variables
+    Shell {
+        /// Only expose secrets matching any of these tags
+        #[arg(long, value_delimiter = ',')]
+        tags: Option<Vec<String>>,
+    },
+
+    /// Run a command with secrets exported as environment variables
+    Run {
+        /// Only expose secrets matching any of these tags
+        #[arg(long, value_delimiter = ',')]
+        tags: Option<Vec<String>>,
+
+        /// Command and arguments to run (prefix with `--`)
+        #[arg(required = true, trailing_var_arg = true, allow_hyphen_values = true)]
+        command: Vec<String>,
     },
 }
 

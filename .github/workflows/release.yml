@@ -107,8 +107,8 @@ jobs:
         if: matrix.cross
         run: cross build --release --target ${{ matrix.target }}
 
-      - name: Strip binary (Linux/macOS)
-        if: "!contains(matrix.os, 'windows') && !matrix.cross"
+      - name: Strip binary
+        if: "!matrix.cross"
         run: |
           BINARY_PATH="target/${{ matrix.target }}/release/schalentier"
           if [ -f "$BINARY_PATH" ]; then

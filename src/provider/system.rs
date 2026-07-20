@@ -352,14 +352,7 @@ impl Default for SystemProvider {
 
 /// Check if we're running as root
 fn nix_is_root() -> bool {
-    #[cfg(unix)]
-    {
-        unsafe { libc::geteuid() == 0 }
-    }
-    #[cfg(not(unix))]
-    {
-        false
-    }
+    unsafe { libc::geteuid() == 0 }
 }
 
 #[async_trait]

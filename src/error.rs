@@ -54,6 +54,18 @@ pub enum SchalentierError {
 
     #[error("Parse error: {0}")]
     ParseError(String),
+
+    #[error("Secret '{name}' not found")]
+    SecretNotFound { name: String },
+
+    #[error("Failed to decrypt secrets: {0}")]
+    DecryptionFailed(String),
+
+    #[error("No master password available. Run 'schalentier secret set' to create one.")]
+    NoMasterPassword,
+
+    #[error("Template error: {0}")]
+    Template(String),
 }
 
 /// Result type alias for Schalentier operations

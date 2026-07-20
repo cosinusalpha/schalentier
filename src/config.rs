@@ -12,6 +12,7 @@ pub enum Provider {
     Binary,
     Uv,
     Brew,
+    Go,
 }
 
 impl std::fmt::Display for Provider {
@@ -23,6 +24,7 @@ impl std::fmt::Display for Provider {
             Provider::Binary => write!(f, "binary"),
             Provider::Uv => write!(f, "uv"),
             Provider::Brew => write!(f, "brew"),
+            Provider::Go => write!(f, "go"),
         }
     }
 }
@@ -40,7 +42,7 @@ pub struct ToolEntry {
 }
 
 /// Main configuration file (schalentier.toml)
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SchalentierConfig {
     /// Global settings
     #[serde(default)]
@@ -57,6 +59,39 @@ pub struct SchalentierConfig {
     /// Dotfiles to manage (key = file path, value = settings)
     #[serde(default)]
     pub dotfiles: HashMap<String, toml::Value>,
+
+    /// User-defined template variables, referenced as `{{ var.NAME }}` in
+    /// templated dotfiles. Can be nested (e.g. `[variables.work]` -> `var.work.email`).
+    #[serde(default = "default_variables")]
+    pub variables: toml::Value,
+
+    /// User-defined package aliases (custom packages or overrides)
+    #[serde(default)]
+    pub aliases: HashMap<String, UserAlias>,
+}
+
+fn default_variables() -> toml::Value {
+    toml::Value::Table(toml::map::Map::new())
+}
+
+/// User-defined package alias
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UserAlias {
+    pub description: Option<String>,
+    pub providers: HashMap<String, crate::registry::ProviderInfo>,
+}
+
+impl Default for SchalentierConfig {
+    fn default() -> Self {
+        Self {
+            settings: Settings::default(),
+            tools: HashMap::new(),
+            sync: SyncConfig::default(),
+            dotfiles: HashMap::new(),
+            variables: default_variables(),
+            aliases: HashMap::new(),
+        }
+    }
 }
 
 /// Global settings
@@ -72,11 +107,21 @@ pub struct Settings {
     /// Whether to auto-update tools
     #[serde(default)]
     pub auto_update: bool,
+
+    /// How long a cached OSV.dev security audit result stays valid before it's
+    /// considered stale and re-queried.
+    #[serde(default = "default_audit_cache_ttl_hours")]
+    pub audit_cache_ttl_hours: u64,
+}
+
+fn default_audit_cache_ttl_hours() -> u64 {
+    24
 }
 
 fn default_provider_priority() -> Vec<Provider> {
     vec![
         Provider::Binary, // Fastest, no dependencies
+        Provider::Go,     // Go CLI tools (static binaries, fast)
         Provider::Cargo,  // Rust ecosystem
         Provider::Brew,   // Cross-platform package manager
         Provider::Conda,  // Python/scientific packages
@@ -91,6 +136,7 @@ impl Default for Settings {
             provider_priority: default_provider_priority(),
             data_dir: None,
             auto_update: false,
+            audit_cache_ttl_hours: default_audit_cache_ttl_hours(),
         }
     }
 }
@@ -98,7 +144,7 @@ impl Default for Settings {
 /// Sync configuration
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct SyncConfig {
-    /// Remote URL (git SSH, HTTPS, or gist URL)
+    /// Remote URL (git SSH, HTTPS, or gist://<id>)
     pub remote: Option<String>,
 
     /// Sync mode
@@ -108,6 +154,11 @@ pub struct SyncConfig {
     /// Auto-sync on startup
     #[serde(default)]
     pub auto_sync: bool,
+
+    /// Default gist visibility: false = secret (default), true = public
+    /// Only applies to gist:// remotes
+    #[serde(default)]
+    pub gist_public: bool,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -194,6 +245,14 @@ pub struct BootstrapState {
     /// Rust/cargo installation status
     pub rust_installed: bool,
     pub rust_path: Option<PathBuf>,
+
+    /// Node.js installation status
+    pub node_installed: bool,
+    pub node_path: Option<PathBuf>,
+
+    /// Go installation status
+    pub go_installed: bool,
+    pub go_path: Option<PathBuf>,
 }
 
 #[cfg(test)]
@@ -250,7 +309,7 @@ mod tests {
     fn test_default_provider_priority() {
         let settings = Settings::default();
         assert_eq!(settings.provider_priority[0], Provider::Binary);
-        assert_eq!(settings.provider_priority.len(), 6);
+        assert_eq!(settings.provider_priority.len(), 7);
         // Binary first (fastest), System last (requires sudo)
         assert_eq!(
             settings.provider_priority.last().unwrap(),

@@ -1,0 +1,668 @@
+{
+  "version": "2024-07-08",
+  "packages": [
+    {
+      "name": "ripgrep",
+      "aliases": ["rg"],
+      "description": "Fast line-oriented search tool",
+      "keywords": ["search", "grep", "regex", "find"],
+      "providers": {
+        "binary": {
+          "name": "ripgrep",
+          "repo": "BurntSushi/ripgrep"
+        },
+        "paru": {
+          "name": "ripgrep"
+        },
+        "brew": {
+          "name": "ripgrep"
+        },
+        "conda": {
+          "name": "ripgrep"
+        },
+        "cargo": {
+          "name": "ripgrep"
+        }
+      }
+    },
+    {
+      "name": "fd",
+      "aliases": ["fdfind"],
+      "description": "Fast alternative to find",
+      "keywords": ["find", "search", "file"],
+      "providers": {
+        "binary": {
+          "name": "fd",
+          "repo": "sharkdp/fd"
+        },
+        "paru": {
+          "name": "fd"
+        },
+        "brew": {
+          "name": "fd"
+        },
+        "conda": {
+          "name": "fd-find"
+        },
+        "cargo": {
+          "name": "fd-find"
+        }
+      }
+    },
+    {
+      "name": "bat",
+      "aliases": ["batcat"],
+      "description": "A cat clone with syntax highlighting",
+      "keywords": ["cat", "syntax", "highlight", "display"],
+      "providers": {
+        "binary": {
+          "name": "bat",
+          "repo": "sharkdp/bat"
+        },
+        "paru": {
+          "name": "bat"
+        },
+        "brew": {
+          "name": "bat"
+        },
+        "conda": {
+          "name": "bat"
+        },
+        "cargo": {
+          "name": "bat"
+        }
+      }
+    },
+    {
+      "name": "exa",
+      "aliases": ["ls"],
+      "description": "A modern replacement for ls",
+      "keywords": ["ls", "list", "files"],
+      "providers": {
+        "binary": {
+          "name": "exa",
+          "repo": "ogham/exa"
+        },
+        "paru": {
+          "name": "exa"
+        },
+        "brew": {
+          "name": "exa"
+        },
+        "cargo": {
+          "name": "exa"
+        }
+      }
+    },
+    {
+      "name": "fzf",
+      "aliases": [],
+      "description": "Command-line fuzzy finder",
+      "keywords": ["fuzzy", "search", "finder"],
+      "providers": {
+        "binary": {
+          "name": "fzf",
+          "repo": "junegunn/fzf"
+        },
+        "paru": {
+          "name": "fzf"
+        },
+        "brew": {
+          "name": "fzf"
+        },
+        "conda": {
+          "name": "fzf"
+        }
+      }
+    },
+    {
+      "name": "jq",
+      "aliases": [],
+      "description": "Command-line JSON processor",
+      "keywords": ["json", "query", "process"],
+      "providers": {
+        "binary": {
+          "name": "jq",
+          "repo": "jqlang/jq"
+        },
+        "paru": {
+          "name": "jq"
+        },
+        "brew": {
+          "name": "jq"
+        },
+        "conda": {
+          "name": "jq"
+        }
+      }
+    },
+    {
+      "name": "ripgrep-all",
+      "aliases": ["rga"],
+      "description": "ripgrep, but also search in PDFs, E-Books, Office documents",
+      "keywords": ["search", "grep", "pdf", "documents"],
+      "providers": {
+        "binary": {
+          "name": "ripgrep-all",
+          "repo": "phiresky/ripgrep-all"
+        },
+        "paru": {
+          "name": "ripgrep-all"
+        },
+        "brew": {
+          "name": "ripgrep-all"
+        },
+        "cargo": {
+          "name": "ripgrep-all"
+        }
+      }
+    },
+    {
+      "name": "typescript",
+      "aliases": ["tsc"],
+      "description": "TypeScript compiler",
+      "keywords": ["typescript", "javascript", "compiler"],
+      "providers": {
+        "pnpm": {
+          "name": "typescript"
+        },
+        "npm": {
+          "name": "typescript"
+        },
+        "yarn": {
+          "name": "typescript"
+        },
+        "brew": {
+          "name": "typescript"
+        },
+        "conda": {
+          "name": "typescript"
+        }
+      }
+    },
+    {
+      "name": "prettier",
+      "aliases": [],
+      "description": "Opinionated code formatter",
+      "keywords": ["format", "code", "pretty"],
+      "providers": {
+        "pnpm": {
+          "name": "prettier"
+        },
+        "npm": {
+          "name": "prettier"
+        },
+        "yarn": {
+          "name": "prettier"
+        },
+        "conda": {
+          "name": "prettier"
+        }
+      }
+    },
+    {
+      "name": "eslint",
+      "aliases": [],
+      "description": "Find and fix problems in JavaScript code",
+      "keywords": ["lint", "javascript", "check"],
+      "providers": {
+        "pnpm": {
+          "name": "eslint"
+        },
+        "npm": {
+          "name": "eslint"
+        },
+        "yarn": {
+          "name": "eslint"
+        }
+      }
+    },
+    {
+      "name": "ruff",
+      "aliases": [],
+      "description": "Fast Python linter, written in Rust",
+      "keywords": ["python", "linter", "format"],
+      "providers": {
+        "binary": {
+          "name": "ruff",
+          "repo": "astral-sh/ruff"
+        },
+        "uv": {
+          "name": "ruff"
+        },
+        "pnpm": {
+          "name": "ruff"
+        },
+        "conda": {
+          "name": "ruff"
+        },
+        "cargo": {
+          "name": "ruff"
+        }
+      }
+    },
+    {
+      "name": "black",
+      "aliases": [],
+      "description": "The uncompromising Python code formatter",
+      "keywords": ["python", "format", "formatter"],
+      "providers": {
+        "uv": {
+          "name": "black"
+        },
+        "pnpm": {
+          "name": "black"
+        },
+        "conda": {
+          "name": "black"
+        }
+      }
+    },
+    {
+      "name": "mypy",
+      "aliases": [],
+      "description": "Optional static typing for Python",
+      "keywords": ["python", "typing", "check"],
+      "providers": {
+        "uv": {
+          "name": "mypy"
+        },
+        "pnpm": {
+          "name": "mypy"
+        },
+        "conda": {
+          "name": "mypy"
+        }
+      }
+    },
+    {
+      "name": "httpie",
+      "aliases": ["http"],
+      "description": "Modern command-line HTTP client",
+      "keywords": ["http", "client", "api", "rest"],
+      "providers": {
+        "uv": {
+          "name": "httpie"
+        },
+        "pnpm": {
+          "name": "httpie"
+        },
+        "conda": {
+          "name": "httpie"
+        },
+        "brew": {
+          "name": "httpie"
+        }
+      }
+    },
+    {
+      "name": "neovim",
+      "aliases": ["nvim"],
+      "description": "Hyperextensible Vim-based text editor",
+      "keywords": ["editor", "vim", "neovim"],
+      "providers": {
+        "binary": {
+          "name": "nvim",
+          "repo": "neovim/neovim"
+        },
+        "paru": {
+          "name": "neovim"
+        },
+        "brew": {
+          "name": "neovim"
+        },
+        "conda": {
+          "name": "neovim"
+        }
+      }
+    },
+    {
+      "name": "helix",
+      "aliases": ["hx"],
+      "description": "A post-modern modal text editor",
+      "keywords": ["editor", "modal", "helix"],
+      "providers": {
+        "binary": {
+          "name": "helix",
+          "repo": "helix-editor/helix"
+        },
+        "paru": {
+          "name": "helix"
+        },
+        "brew": {
+          "name": "helix"
+        },
+        "conda": {
+          "name": "helix"
+        },
+        "cargo": {
+          "name": "helix-term"
+        }
+      }
+    },
+    {
+      "name": "starship",
+      "aliases": [],
+      "description": "Minimal, blazing-fast, and infinitely customizable prompt",
+      "keywords": ["prompt", "shell", "theme"],
+      "providers": {
+        "binary": {
+          "name": "starship",
+          "repo": "starship/starship"
+        },
+        "paru": {
+          "name": "starship"
+        },
+        "brew": {
+          "name": "starship"
+        },
+        "conda": {
+          "name": "starship"
+        },
+        "cargo": {
+          "name": "starship"
+        }
+      }
+    },
+    {
+      "name": "zoxide",
+      "aliases": ["z"],
+      "description": "Fast directory jumper",
+      "keywords": ["jump", "directory", "cd"],
+      "providers": {
+        "binary": {
+          "name": "zoxide",
+          "repo": "ajeetdsouza/zoxide"
+        },
+        "paru": {
+          "name": "zoxide"
+        },
+        "brew": {
+          "name": "zoxide"
+        },
+        "conda": {
+          "name": "zoxide"
+        },
+        "cargo": {
+          "name": "zoxide"
+        }
+      }
+    },
+    {
+      "name": "direnv",
+      "aliases": [],
+      "description": "Unclutter your .profile",
+      "keywords": ["env", "shell", "directory"],
+      "providers": {
+        "binary": {
+          "name": "direnv",
+          "repo": "direnv/direnv"
+        },
+        "paru": {
+          "name": "direnv"
+        },
+        "brew": {
+          "name": "direnv"
+        },
+        "conda": {
+          "name": "direnv"
+        }
+      }
+    },
+    {
+      "name": "htop",
+      "aliases": [],
+      "description": "Interactive process viewer",
+      "keywords": ["process", "monitor", "system"],
+      "providers": {
+        "paru": {
+          "name": "htop"
+        },
+        "brew": {
+          "name": "htop"
+        },
+        "conda": {
+          "name": "htop"
+        }
+      }
+    },
+    {
+      "name": "btop",
+      "aliases": [],
+      "description": "Resource monitor that shows usage and stats",
+      "keywords": ["process", "monitor", "system", "resource"],
+      "providers": {
+        "binary": {
+          "name": "btop",
+          "repo": "aristocratos/btop"
+        },
+        "paru": {
+          "name": "btop"
+        },
+        "brew": {
+          "name": "btop"
+        },
+        "conda": {
+          "name": "btop"
+        }
+      }
+    },
+    {
+      "name": "git-delta",
+      "aliases": ["delta"],
+      "description": "Syntax-highlighting pager for git",
+      "keywords": ["git", "diff", "syntax"],
+      "providers": {
+        "binary": {
+          "name": "delta",
+          "repo": "dandavison/delta"
+        },
+        "paru": {
+          "name": "git-delta"
+        },
+        "brew": {
+          "name": "git-delta"
+        },
+        "conda": {
+          "name": "git-delta"
+        },
+        "cargo": {
+          "name": "git-delta"
+        }
+      }
+    },
+    {
+      "name": "lazygit",
+      "aliases": [],
+      "description": "Simple terminal UI for git commands",
+      "keywords": ["git", "ui", "terminal"],
+      "providers": {
+        "binary": {
+          "name": "lazygit",
+          "repo": "jesseduffield/lazygit"
+        },
+        "paru": {
+          "name": "lazygit"
+        },
+        "brew": {
+          "name": "lazygit"
+        },
+        "conda": {
+          "name": "lazygit"
+        }
+      }
+    },
+    {
+      "name": "claude",
+      "aliases": ["claude-code"],
+      "description": "Anthropic's Claude AI CLI",
+      "keywords": ["ai", "claude", "anthropic", "llm"],
+      "providers": {
+        "pnpm": {
+          "name": "@anthropic-ai/claude-code"
+        },
+        "npm": {
+          "name": "@anthropic-ai/claude-code"
+        }
+      }
+    },
+    {
+      "name": "aider",
+      "aliases": [],
+      "description": "AI pair programming in your terminal",
+      "keywords": ["ai", "pair-programming", "assistant"],
+      "providers": {
+        "uv": {
+          "name": "aider-chat"
+        },
+        "pnpm": {
+          "name": "aider-chat"
+        }
+      }
+    },
+    {
+      "name": "python",
+      "aliases": ["python3"],
+      "description": "Python programming language",
+      "keywords": ["python", "language", "programming"],
+      "providers": {
+        "conda": {
+          "name": "python"
+        },
+        "paru": {
+          "name": "python"
+        },
+        "brew": {
+          "name": "python@3.12"
+        }
+      }
+    },
+    {
+      "name": "nodejs",
+      "aliases": ["node"],
+      "description": "JavaScript runtime",
+      "keywords": ["javascript", "node", "runtime"],
+      "providers": {
+        "conda": {
+          "name": "nodejs"
+        },
+        "paru": {
+          "name": "nodejs"
+        },
+        "brew": {
+          "name": "node"
+        }
+      }
+    },
+    {
+      "name": "lazygit",
+      "aliases": ["lg"],
+      "description": "Simple terminal UI for git commands",
+      "keywords": ["git", "ui", "terminal", "tui"],
+      "providers": {
+        "go": {
+          "name": "github.com/jesseduffield/lazygit"
+        },
+        "binary": {
+          "name": "lazygit",
+          "repo": "jesseduffield/lazygit"
+        },
+        "brew": {
+          "name": "lazygit"
+        },
+        "conda": {
+          "name": "lazygit"
+        }
+      }
+    },
+    {
+      "name": "gopls",
+      "description": "Go language server (LSP)",
+      "keywords": ["go", "lsp", "language-server", "golang"],
+      "providers": {
+        "go": {
+          "name": "golang.org/x/tools/gopls"
+        }
+      }
+    },
+    {
+      "name": "buf",
+      "description": "Protocol buffer compiler and linter",
+      "keywords": ["protobuf", "proto", "grpc", "compiler"],
+      "providers": {
+        "go": {
+          "name": "github.com/bufbuild/buf/cmd/buf"
+        },
+        "binary": {
+          "name": "buf",
+          "repo": "bufbuild/buf"
+        }
+      }
+    },
+    {
+      "name": "goreleaser",
+      "description": "Go release automation tool",
+      "keywords": ["go", "release", "automation", "build"],
+      "providers": {
+        "go": {
+          "name": "github.com/goreleaser/goreleaser/v2"
+        },
+        "binary": {
+          "name": "goreleaser",
+          "repo": "goreleaser/goreleaser"
+        },
+        "brew": {
+          "name": "goreleaser"
+        }
+      }
+    },
+    {
+      "name": "dive",
+      "description": "Docker image explorer and analyzer",
+      "keywords": ["docker", "container", "image", "analyzer"],
+      "providers": {
+        "go": {
+          "name": "github.com/wagoodman/dive"
+        },
+        "binary": {
+          "name": "dive",
+          "repo": "wagoodman/dive"
+        },
+        "brew": {
+          "name": "dive"
+        }
+      }
+    },
+    {
+      "name": "helm",
+      "description": "Kubernetes package manager",
+      "keywords": ["kubernetes", "k8s", "package", "helm"],
+      "providers": {
+        "go": {
+          "name": "helm.sh/helm/v3/cmd/helm"
+        },
+        "binary": {
+          "name": "helm",
+          "repo": "helm/helm"
+        },
+        "brew": {
+          "name": "helm"
+        }
+      }
+    },
+    {
+      "name": "ko",
+      "description": "Build and publish Go applications to containers",
+      "keywords": ["go", "container", "docker", "build"],
+      "providers": {
+        "go": {
+          "name": "ko.build/ko"
+        },
+        "binary": {
+          "name": "ko",
+          "repo": "ko-build/ko"
+        }
+      }
+    }
+  ]
+}

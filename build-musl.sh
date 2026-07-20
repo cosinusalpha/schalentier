@@ -1,5 +1,6 @@
 #!/bin/bash
-# Build static musl binaries for Linux
+# Build static musl binaries for Linux.
+#
 # Usage:
 #   ./build-musl.sh              # Build for current architecture
 #   ./build-musl.sh x86_64       # Build for x86_64
@@ -29,45 +30,12 @@ build_target() {
     echo "Building for ${target}..."
     echo "=============================================="
 
-    # Use Docker/Podman
-    local container_cmd="docker"
-    if command -v podman &>/dev/null; then
-        container_cmd="podman"
-    fi
-
-    if [ "$arch" = "x86_64" ]; then
-        # Native x86_64 build
-        $container_cmd run --rm \
-            -v "$SCRIPT_DIR":/build \
-            -w /build \
-            rust:latest \
-            sh -c "
-                rustup target add ${target} && \
-                apt-get update && apt-get install -y musl-tools && \
-                cargo build --release --target ${target}
-            "
-    elif [ "$arch" = "aarch64" ]; then
-        # ARM64 cross-compilation
-        $container_cmd run --rm \
-            -v "$SCRIPT_DIR":/build \
-            -w /build \
-            rust:latest \
-            sh -c "
-                rustup target add ${target} && \
-                apt-get update && apt-get install -y musl-tools gcc-aarch64-linux-gnu && \
-                export CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER=aarch64-linux-gnu-gcc && \
-                export CC_aarch64_unknown_linux_musl=aarch64-linux-gnu-gcc && \
-                cargo build --release --target ${target}
-            "
-    else
-        echo "Unknown architecture: $arch"
-        exit 1
-    fi
+    rustup target add "${target}" >/dev/null 2>&1 || true
+    cargo build --release --target "${target}" --bin schalentier
 
     echo ""
     echo "Binary built: ${output_dir}/schalentier"
     ls -la "${output_dir}/schalentier"
-
     echo ""
     echo "Binary info:"
     file "${output_dir}/schalentier"

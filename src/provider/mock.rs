@@ -6,15 +6,29 @@ use async_trait::async_trait;
 /// Mock provider for testing
 pub struct MockProvider {
     available: bool,
+    provider: Provider,
 }
 
 impl MockProvider {
     pub fn new() -> Self {
-        Self { available: true }
+        Self {
+            available: true,
+            provider: Provider::Binary,
+        }
     }
 
     pub fn unavailable() -> Self {
-        Self { available: false }
+        Self {
+            available: false,
+            provider: Provider::Binary,
+        }
+    }
+
+    /// Override the provider type this mock reports as (default: `Binary`). Useful
+    /// for testing multi-provider fallback with more than one mock registered.
+    pub fn with_provider(mut self, provider: Provider) -> Self {
+        self.provider = provider;
+        self
     }
 }
 
@@ -27,7 +41,7 @@ impl Default for MockProvider {
 #[async_trait]
 impl Installer for MockProvider {
     fn provider(&self) -> Provider {
-        Provider::Binary
+        self.provider.clone()
     }
 
     async fn search(&self, query: &str, limit: usize) -> Result<Vec<SearchResult>> {
@@ -37,14 +51,14 @@ impl Installer for MockProvider {
                 name: format!("{}-tool", query),
                 description: Some(format!("A tool related to {}", query)),
                 version: Some("1.0.0".to_string()),
-                provider: Provider::Binary,
+                provider: self.provider.clone(),
                 metadata: std::collections::HashMap::new(),
             },
             SearchResult {
                 name: format!("{}-cli", query),
                 description: Some(format!("CLI for {}", query)),
                 version: Some("2.0.0".to_string()),
-                provider: Provider::Binary,
+                provider: self.provider.clone(),
                 metadata: std::collections::HashMap::new(),
             },
         ];

@@ -5,13 +5,15 @@ use indicatif::{ProgressBar, ProgressStyle};
 use inquire::{Confirm, MultiSelect};
 use schalentier::{
     bootstrap::{get_arch, get_os, Bootstrap},
-    cli::{ConfigAction, SnippetAction},
+    cli::{ConfigAction, SecretAction, SnippetAction},
     config::{InstalledTool, ToolEntry, ToolStatus},
     detection::ToolDetector,
     dotfiles::{ApplyAction, DotfileManager},
     error::{self, print_info, print_success, print_warning},
+    gist,
     provider::create_default_registry,
-    shell::{shell_init_snippet, write_env_scripts, ShellType},
+    secrets,
+    shell::{ensure_sourced, is_sourced, rc_file_path, shell_init_snippet, write_env_scripts, ShellType},
     state::default_data_dir,
     Cli, Commands, LocalState, Provider, SchalentierConfig, Shell,
 };
@@ -60,8 +62,9 @@ async fn run() -> Result<()> {
             force,
             yes,
             skip_bootstrap,
+            setup_shell,
         } => {
-            cmd_init(force, yes, skip_bootstrap).await?;
+            cmd_init(force, yes, skip_bootstrap, setup_shell).await?;
         }
         Commands::Add {
             name,
@@ -77,11 +80,13 @@ async fn run() -> Result<()> {
             pull,
             prune,
             dry_run,
+            public,
+            secret,
         } => {
-            cmd_sync(remote.as_deref(), push, pull, prune, dry_run).await?;
+            cmd_sync(remote.as_deref(), push, pull, prune, dry_run, public, secret).await?;
         }
-        Commands::Update { name, dry_run } => {
-            cmd_update(name.as_deref(), dry_run).await?;
+        Commands::Update { name, dry_run, force } => {
+            cmd_update(name.as_deref(), dry_run, force).await?;
         }
         Commands::Doctor { fix } => {
             cmd_doctor(fix).await?;
@@ -92,8 +97,8 @@ async fn run() -> Result<()> {
         } => {
             cmd_remove(&name, keep_installed).await?;
         }
-        Commands::List { detailed, provider } => {
-            cmd_list(detailed, provider.as_deref()).await?;
+        Commands::List { detailed, provider, security } => {
+            cmd_list(detailed, provider.as_deref(), security).await?;
         }
         Commands::Search {
             query,
@@ -118,13 +123,22 @@ async fn run() -> Result<()> {
         Commands::Completions { shell } => {
             cmd_completions(shell);
         }
+        Commands::Secret { action } => {
+            cmd_secret(action)?;
+        }
+        Commands::Registry { action } => {
+            cmd_registry(action)?;
+        }
+        Commands::Audit { package, refresh } => {
+            cmd_audit(package, refresh).await?;
+        }
     }
 
     Ok(())
 }
 
 /// Initialize schalentier
-async fn cmd_init(force: bool, yes: bool, skip_bootstrap: bool) -> Result<()> {
+async fn cmd_init(force: bool, yes: bool, skip_bootstrap: bool, setup_shell: bool) -> Result<()> {
     let mut state = LocalState::load()?;
 
     if state.initialized && !force {
@@ -133,26 +147,29 @@ async fn cmd_init(force: bool, yes: bool, skip_bootstrap: bool) -> Result<()> {
     }
 
     // Determine what to install
-    let (install_uv, install_conda) = if skip_bootstrap {
-        (false, false) // Skip all bootstrapping
+    let (install_uv, install_conda, install_rust, install_node, install_go) = if skip_bootstrap {
+        (false, false, false, false, false) // Skip all bootstrapping
     } else if yes {
-        (true, true) // Install everything by default
+        (true, true, true, true, true) // Install everything by default
     } else {
         prompt_init_options()?
     };
 
     info!("Initializing schalentier...");
 
-    // Run bootstrap with user preferences (skipped if both are false)
-    if install_uv || install_conda {
+    // Run bootstrap with user preferences (skipped if all are false)
+    if install_uv || install_conda || install_rust || install_node || install_go {
         let mut bootstrap = Bootstrap::new()?;
         bootstrap.set_install_uv(install_uv);
         bootstrap.set_install_conda(install_conda);
+        bootstrap.set_install_rust(install_rust);
+        bootstrap.set_install_node(install_node);
+        bootstrap.set_install_go(install_go);
         bootstrap.run(&mut state).await?;
     } else {
         // Just mark as initialized without bootstrap
         state.initialized = true;
-        print_info("Skipping bootstrap (no uv or conda will be installed)");
+        print_info("Skipping bootstrap (no tools will be installed)");
     }
 
     // Save state (also ensures data_dir exists)
@@ -160,7 +177,7 @@ async fn cmd_init(force: bool, yes: bool, skip_bootstrap: bool) -> Result<()> {
 
     // Write environment scripts
     let data_dir = default_data_dir()?;
-    write_env_scripts(&data_dir)?;
+    write_env_scripts(&data_dir, &state.bootstrap)?;
 
     // Create default config if it doesn't exist
     let config = SchalentierConfig::load()?;
@@ -171,17 +188,90 @@ async fn cmd_init(force: bool, yes: bool, skip_bootstrap: bool) -> Result<()> {
 
     print_success("Initialization complete!");
 
-    // Show shell setup instructions
+    // Offer to wire schalentier's env file into the user's actual shell config.
     if let Some(shell) = ShellType::detect() {
-        println!("\nTo complete setup, add the following to your shell config:\n");
-        println!("{}", shell_init_snippet(shell, &data_dir));
+        setup_shell_integration(shell, &data_dir, yes, setup_shell)?;
     }
 
     Ok(())
 }
 
+/// Offer (or, with `setup_shell`, directly apply) sourcing schalentier's generated env
+/// file from the user's shell rc file. Falls back to printing copy-paste instructions
+/// when declined, non-interactive without `--setup-shell`, or already set up.
+fn setup_shell_integration(
+    shell: ShellType,
+    data_dir: &std::path::Path,
+    yes: bool,
+    setup_shell: bool,
+) -> Result<()> {
+    let default_rc = rc_file_path(shell);
+
+    // Already wired up (e.g. a repeat `init --force`) — nothing to do or ask.
+    if let Some(ref rc) = default_rc {
+        if is_sourced(rc, data_dir, shell) {
+            return Ok(());
+        }
+    }
+
+    if setup_shell {
+        if let Some(rc) = default_rc {
+            ensure_sourced(&rc, data_dir, shell)?;
+            print_success(&format!("Added schalentier setup to {}", rc.display()));
+        } else {
+            print_warning("Could not determine home directory; printing instructions instead:");
+            println!("\n{}", shell_init_snippet(shell, data_dir));
+        }
+        return Ok(());
+    }
+
+    if yes {
+        // Non-interactive without --setup-shell: keep today's print-only behavior.
+        println!("\nTo complete setup, add the following to your shell config:\n");
+        println!("{}", shell_init_snippet(shell, data_dir));
+        return Ok(());
+    }
+
+    let proceed = match inquire::Confirm::new(
+        "Add schalentier's environment setup to your shell config now?",
+    )
+    .with_default(true)
+    .prompt()
+    {
+        Ok(answer) => answer,
+        Err(inquire::InquireError::OperationCanceled) => {
+            println!("\nSkipped. To complete setup manually, add the following to your shell config:\n");
+            println!("{}", shell_init_snippet(shell, data_dir));
+            return Ok(());
+        }
+        Err(e) => return Err(anyhow::anyhow!("Prompt failed: {e}")),
+    };
+
+    if !proceed {
+        println!("\nTo complete setup later, add the following to your shell config:\n");
+        println!("{}", shell_init_snippet(shell, data_dir));
+        return Ok(());
+    }
+
+    let default_rc_str = default_rc
+        .as_ref()
+        .map(|p| p.display().to_string())
+        .unwrap_or_default();
+
+    let chosen = inquire::Text::new("Shell config file to update:")
+        .with_default(&default_rc_str)
+        .prompt()
+        .map_err(|e| anyhow::anyhow!("Prompt failed: {e}"))?;
+
+    let rc_path = std::path::PathBuf::from(chosen);
+    ensure_sourced(&rc_path, data_dir, shell)?;
+    print_success(&format!("Added schalentier setup to {}", rc_path.display()));
+
+    Ok(())
+}
+
 /// Prompt user for init options interactively
-fn prompt_init_options() -> Result<(bool, bool)> {
+fn prompt_init_options() -> Result<(bool, bool, bool, bool, bool)> {
     println!("\nWelcome to schalentier!\n");
     println!("This will set up your cross-platform package manager.\n");
 
@@ -208,7 +298,7 @@ fn prompt_init_options() -> Result<(bool, bool)> {
     // Show recommendations based on detections
     if detection.has_alternative_tools() {
         println!("You already have access to several package managers.");
-        println!("Bootstrapping uv and conda is optional.");
+        println!("Bootstrapping additional tools is optional.");
         println!();
     }
 
@@ -216,6 +306,9 @@ fn prompt_init_options() -> Result<(bool, bool)> {
     let mut defaults = vec![];
     let mut default_uv = true;
     let mut default_conda = true;
+    let mut default_rust = true;
+    let mut default_node = true;
+    let mut default_go = true;
 
     if detection.uv.available {
         println!("ℹ uv is already installed. Skipping by default.");
@@ -227,25 +320,46 @@ fn prompt_init_options() -> Result<(bool, bool)> {
         default_conda = false;
     }
 
+    if detection.rust.available {
+        println!("ℹ Rust is already installed. Skipping by default.");
+        default_rust = false;
+    }
+
+    if detection.node.available {
+        println!("ℹ Node.js is already installed. Skipping by default.");
+        default_node = false;
+    }
+
+    if detection.go.available {
+        println!("ℹ Go is already installed. Skipping by default.");
+        default_go = false;
+    }
+
     if default_uv {
         defaults.push(0);
     }
     if default_conda {
         defaults.push(1);
     }
+    if default_rust {
+        defaults.push(2);
+    }
+    if default_node {
+        defaults.push(3);
+    }
+    if default_go {
+        defaults.push(4);
+    }
 
     println!();
 
     // Ask about bootstrap components
     let components = [
-        (
-            "uv",
-            "uv - Fast Python package installer (recommended for Python CLI tools)",
-        ),
-        (
-            "conda",
-            "Miniforge/Conda - Scientific packages and isolated environments",
-        ),
+        ("uv", "uv - Fast Python package installer (recommended for Python CLI tools)"),
+        ("conda", "Miniforge/Conda - Scientific packages and isolated environments"),
+        ("rust", "Rust (rustup) - Rust toolchain and cargo package manager"),
+        ("node", "Node.js - JavaScript runtime and npm package manager"),
+        ("go", "Go - Go toolchain for building and installing Go CLI tools"),
     ];
 
     let selections = MultiSelect::new(
@@ -265,8 +379,11 @@ fn prompt_init_options() -> Result<(bool, bool)> {
         Err(e) => return Err(anyhow::anyhow!("Prompt error: {}", e)),
     };
 
-    let install_uv = selected.iter().any(|s| s.contains("uv"));
+    let install_uv = selected.iter().any(|s| s.contains("uv -"));
     let install_conda = selected.iter().any(|s| s.contains("Miniforge"));
+    let install_rust = selected.iter().any(|s| s.contains("Rust (rustup)"));
+    let install_node = selected.iter().any(|s| s.contains("Node.js"));
+    let install_go = selected.iter().any(|s| s.contains("Go -"));
 
     // Confirm before proceeding
     println!();
@@ -275,7 +392,7 @@ fn prompt_init_options() -> Result<(bool, bool)> {
         .prompt();
 
     match proceed {
-        Ok(true) => Ok((install_uv, install_conda)),
+        Ok(true) => Ok((install_uv, install_conda, install_rust, install_node, install_go)),
         Ok(false) => {
             println!("\nSetup cancelled.");
             std::process::exit(0);
@@ -304,6 +421,197 @@ async fn cmd_add(
         return Ok(());
     }
 
+    // ==========================================
+    // STEP 1: Resolve ALL providers
+    // ==========================================
+
+    let pkg_registry = schalentier::registry::PackageRegistry::load()?;
+    
+    let resolution = match pkg_registry.resolve_all_providers(name) {
+        Ok(r) => r,
+        Err(_) => {
+            // Not in the curated registry. Query the live providers to help the user:
+            // confirm an exact match, or surface close matches for a likely typo.
+            print_info(&format!("'{}' not in registry, searching providers...", name));
+            search_providers_for(name).await;
+            return cmd_add_legacy(name, provider, no_install, dry_run, config, state).await;
+        }
+    };
+
+    // Display resolution
+    println!();
+    println!("Package: {}", resolution.canonical_name);
+    println!("Description: {}", resolution.description);
+    println!();
+
+    // Show available providers
+    let mut providers: Vec<_> = resolution.available_providers.iter().collect();
+    providers.sort_by(|a, b| a.0.cmp(b.0));
+
+    if !providers.is_empty() {
+        println!("Available in {} provider(s):", providers.len());
+        for (provider_name, provider_info) in &providers {
+            let pkg_name = &provider_info.package_name;
+            let note = if pkg_name != &resolution.canonical_name {
+                format!(" (as {})", pkg_name)
+            } else {
+                String::new()
+            };
+            println!("  ✓ {}{}", provider_name, note);
+        }
+    } else {
+        print_warning("No providers available for this package");
+        return Ok(());
+    }
+
+    // Show unavailable providers
+    if !dry_run && !resolution.unavailable_providers.is_empty() {
+        println!();
+        println!("Not available in {} provider(s):", resolution.unavailable_providers.len());
+        let mut unavail: Vec<_> = resolution.unavailable_providers.iter().collect();
+        unavail.sort_by(|a, b| a.0.cmp(b.0));
+        for (provider_name, reason) in &unavail {
+            println!("  ✗ {}: {}", provider_name, reason);
+        }
+    }
+
+    // ==========================================
+    // STEP 2: Security Audit (if installing)
+    // ==========================================
+
+    if !dry_run
+        && !no_install
+        && !perform_security_audit(&resolution, config.settings.audit_cache_ttl_hours).await?
+    {
+        // User declined to install a package with known vulnerabilities.
+        println!("Installation cancelled.");
+        return Ok(());
+    }
+
+    // ==========================================
+    // STEP 3: Select Provider
+    // ==========================================
+
+    let selected_provider = if let Some(p) = provider {
+        // User specified provider
+        if !resolution.available_providers.contains_key(p) {
+            return Err(anyhow::anyhow!(
+                "Package '{}' is not available via {}. Available: {}",
+                name,
+                p,
+                resolution.available_providers.keys().cloned().collect::<Vec<_>>().join(", ")
+            ));
+        }
+        p.to_string()
+    } else {
+        // Auto-select based on priority
+        let priority = &config.settings.provider_priority;
+        select_best_provider(&resolution, priority)?
+    };
+
+    println!();
+    if dry_run {
+        println!("Dry run - would install via {}", selected_provider);
+        return Ok(());
+    }
+
+    println!("Selected provider: {}", selected_provider);
+
+    // ==========================================
+    // STEP 4: Install
+    // ==========================================
+
+    if no_install {
+        config.tools.insert(
+            resolution.canonical_name.clone(),
+            ToolEntry {
+                provider: Some(str_to_provider(&selected_provider)),
+                version: None,
+                options: std::collections::HashMap::new(),
+            },
+        );
+        config.save()?;
+        print_success(&format!(
+            "Added '{}' to configuration (not installed)",
+            resolution.canonical_name
+        ));
+        return Ok(());
+    }
+
+    // Install using selected provider
+    let provider_info = resolution.available_providers.get(&selected_provider).unwrap();
+    
+    // Use legacy install logic
+    cmd_install_with_provider(
+        &resolution.canonical_name,
+        &provider_info.package_name,
+        &selected_provider,
+        &mut state,
+    ).await?;
+
+    // Update config
+    config.tools.insert(
+        resolution.canonical_name.clone(),
+        ToolEntry {
+            provider: Some(str_to_provider(&selected_provider)),
+            version: None,
+            options: std::collections::HashMap::new(),
+        },
+    );
+    config.save()?;
+
+    Ok(())
+}
+
+/// Search live providers for a package name and print what was found.
+///
+/// Best-effort discovery for packages not in the curated registry: confirms an exact
+/// name match (across providers) or lists close matches so the user can spot a typo.
+/// Never fails the install — a search error or empty result is just reported.
+async fn search_providers_for(name: &str) {
+    let (arch, os, data_dir) = match (get_arch(), get_os(), default_data_dir()) {
+        (Ok(a), Ok(o), Ok(d)) => (a, o, d),
+        _ => return,
+    };
+    let registry = create_default_registry(arch, os, data_dir);
+
+    let spinner = create_spinner(&format!("Searching providers for '{}'...", name));
+    let results = registry.search_all_clustered(name, 10).await;
+    spinner.finish_and_clear();
+
+    if results.is_empty() {
+        print_info(&format!(
+            "No provider matches found for '{}'; will attempt install by name.",
+            name
+        ));
+        return;
+    }
+
+    if let Some(exact) = results.iter().find(|r| r.name.eq_ignore_ascii_case(name)) {
+        let providers: Vec<String> = exact.providers.iter().map(|p| p.provider.to_string()).collect();
+        print_info(&format!(
+            "Found '{}' in: {}",
+            exact.name,
+            providers.join(", ")
+        ));
+    } else {
+        println!("Did you mean one of these?");
+        for r in results.iter().take(5) {
+            let providers: Vec<String> = r.providers.iter().map(|p| p.provider.to_string()).collect();
+            println!("  {} ({})", r.name, providers.join(", "));
+        }
+    }
+}
+
+/// Legacy add command for packages not in registry
+async fn cmd_add_legacy(
+    name: &str,
+    provider: Option<&str>,
+    no_install: bool,
+    dry_run: bool,
+    mut config: SchalentierConfig,
+    mut state: LocalState,
+) -> Result<()> {
     // Parse provider if specified
     let provider_enum = provider.map(|p| match p.to_lowercase().as_str() {
         "system" => Provider::System,
@@ -312,63 +620,21 @@ async fn cmd_add(
         "binary" => Provider::Binary,
         "uv" => Provider::Uv,
         "brew" => Provider::Brew,
-        _ => Provider::Binary, // Default
+        _ => Provider::Binary,
     });
 
-    // Dry run - show what would happen
     if dry_run {
-        println!("Dry run: showing what would happen for '{}'", name);
-        println!();
-
-        // Check if tool exists
-        if let Ok(existing_path) = which::which(name) {
-            println!("  Tool already exists at: {}", existing_path.display());
-            if !state.tools.contains_key(name) {
-                println!("  Action: Would ADOPT existing installation");
-            } else {
-                println!("  Action: Already tracked in state");
-            }
-        } else {
-            println!("  Tool not found on system");
-            println!(
-                "  Action: Would INSTALL via {}",
-                provider_enum
-                    .as_ref()
-                    .map(|p| format!("{}", p))
-                    .unwrap_or_else(|| "auto-detected provider".to_string())
-            );
+        match provider_enum {
+            Some(p) => println!("Dry run - would install '{}' via {}", name, p),
+            None => println!(
+                "Dry run - would install '{}' via provider priority (not in registry)",
+                name
+            ),
         }
-
-        // Search for the tool to show available versions
-        let arch = get_arch()?;
-        let os = get_os()?;
-        let data_dir = default_data_dir()?;
-        let registry = create_default_registry(arch, os, data_dir);
-
-        println!();
-        println!("  Available from:");
-        let results = registry.search_all_clustered(name, 1).await;
-        for result in results
-            .iter()
-            .filter(|r| r.name.to_lowercase() == name.to_lowercase())
-        {
-            for p in &result.providers {
-                let ver = p
-                    .version
-                    .as_ref()
-                    .map(|v| format_version(v))
-                    .unwrap_or_else(|| "?".to_string());
-                println!("    - {} {}", p.provider, ver);
-            }
-        }
-        if results.is_empty() {
-            println!("    (no packages found)");
-        }
-
         return Ok(());
     }
 
-    // Add to config with the requested provider
+    // Add to config
     config.tools.insert(
         name.to_string(),
         ToolEntry {
@@ -380,54 +646,11 @@ async fn cmd_add(
 
     if no_install {
         config.save()?;
-        print_success(&format!(
-            "Added '{}' to configuration (not installed)",
-            name
-        ));
+        print_success(&format!("Added '{}' to configuration (not installed)", name));
         return Ok(());
     }
 
-    // Check if tool already exists on the system (adoption logic)
-    if let Ok(existing_path) = which::which(name) {
-        // Tool exists - check if it's already managed by us
-        if !state.tools.contains_key(name) {
-            // Not in our state - adopt it instead of installing
-            print_info(&format!(
-                "Found existing '{}' at {}",
-                name,
-                existing_path.display()
-            ));
-
-            // Try to get version from the existing binary
-            let version = get_binary_version(&existing_path);
-
-            // Determine provider (if it's in common paths, guess the provider)
-            let detected_provider = detect_provider_from_path(&existing_path);
-
-            state.tools.insert(
-                name.to_string(),
-                InstalledTool {
-                    provider: detected_provider.clone(),
-                    version,
-                    path: Some(existing_path),
-                    status: ToolStatus::Adopted,
-                    managed: false, // Not managed by us - just adopted
-                    installed_at: Some(chrono_lite_now()),
-                    last_checked: None,
-                },
-            );
-            state.save()?;
-            config.save()?;
-
-            print_success(&format!(
-                "Adopted '{}' (managed by {})",
-                name, detected_provider
-            ));
-            return Ok(());
-        }
-    }
-
-    // Tool doesn't exist - proceed with installation
+    // Install using provider registry
     let arch = get_arch()?;
     let os = get_os()?;
     let data_dir = default_data_dir()?;
@@ -435,20 +658,11 @@ async fn cmd_add(
 
     info!("Installing '{}'...", name);
 
-    // Show brief spinner while preparing, then clear for install
-    // (clearing allows sudo password prompts to display correctly)
-    let spinner = create_spinner(&format!("Preparing to install {}...", name));
-    spinner.finish_and_clear();
-    print_info(&format!("Installing {}...", name));
-
-    // Use install_with_fallback which tries preferred provider first,
-    // then falls back to others in priority order
     match registry
         .install_with_fallback(name, None, provider_enum.clone())
         .await
     {
         Ok((install_result, actual_provider)) => {
-            // Check if fallback was used
             let used_fallback = provider_enum
                 .as_ref()
                 .is_some_and(|p| p != &actual_provider);
@@ -460,7 +674,6 @@ async fn cmd_add(
                 ));
             }
 
-            // Update state with the ACTUAL provider used
             state.tools.insert(
                 name.to_string(),
                 InstalledTool {
@@ -495,53 +708,144 @@ async fn cmd_add(
     Ok(())
 }
 
-/// Try to get version from a binary by running it with --version
-fn get_binary_version(path: &std::path::Path) -> Option<String> {
-    use std::process::Command;
+/// Install a package with a specific provider
+async fn cmd_install_with_provider(
+    canonical_name: &str,
+    package_name: &str,
+    provider_name: &str,
+    state: &mut LocalState,
+) -> Result<()> {
+    let arch = get_arch()?;
+    let os = get_os()?;
+    let data_dir = default_data_dir()?;
+    let registry = create_default_registry(arch, os, data_dir);
 
-    let output = Command::new(path).arg("--version").output().ok()?;
+    println!("Installing '{}' via {}...", package_name, provider_name);
 
-    if output.status.success() {
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        // Parse version from output like "tool 1.2.3" or "tool version 1.2.3"
-        stdout
-            .split_whitespace()
-            .find(|s| {
-                s.chars()
-                    .next()
-                    .map(|c| c.is_ascii_digit())
-                    .unwrap_or(false)
-            })
-            .map(|s| s.trim_end_matches(',').to_string())
-    } else {
-        None
+    let provider_enum = str_to_provider(provider_name);
+
+    match registry
+        .install_with_fallback(package_name, None, Some(provider_enum.clone()))
+        .await
+    {
+        Ok((install_result, actual_provider)) => {
+            state.tools.insert(
+                canonical_name.to_string(),
+                InstalledTool {
+                    provider: actual_provider.clone(),
+                    version: install_result.version.clone(),
+                    path: install_result.path.clone(),
+                    status: ToolStatus::Installed,
+                    managed: true,
+                    installed_at: Some(chrono_lite_now()),
+                    last_checked: None,
+                },
+            );
+            state.save()?;
+
+            let ver = install_result.version.as_deref().unwrap_or("unknown");
+            print_success(&format!(
+                "Installed '{}' {} via {}",
+                canonical_name,
+                format_version(ver),
+                actual_provider
+            ));
+        }
+        Err(e) => {
+            return Err(anyhow::anyhow!("Installation failed: {}", e));
+        }
+    }
+
+    Ok(())
+}
+
+/// Convert provider string to enum
+fn str_to_provider(s: &str) -> Provider {
+    match s.to_lowercase().as_str() {
+        "system" => Provider::System,
+        "conda" => Provider::Conda,
+        "cargo" => Provider::Cargo,
+        "binary" => Provider::Binary,
+        "uv" => Provider::Uv,
+        "brew" => Provider::Brew,
+        _ => Provider::Binary,
     }
 }
 
-/// Detect likely provider from binary path
-fn detect_provider_from_path(path: &std::path::Path) -> Provider {
-    let path_str = path.to_string_lossy();
-
-    if path_str.contains(".cargo/bin") {
-        Provider::Cargo
-    } else if path_str.contains("linuxbrew")
-        || path_str.contains("homebrew")
-        || path_str.contains("Cellar")
-    {
-        Provider::Brew
-    } else if path_str.contains("conda")
-        || path_str.contains("mamba")
-        || path_str.contains("miniforge")
-    {
-        Provider::Conda
-    } else if path_str.contains(".local/bin") {
-        // Could be uv or pip installed
-        Provider::Uv
-    } else if path_str.contains(".schalentier") {
-        Provider::Binary
-    } else {
-        Provider::System // Default fallback for /usr, /bin, and others
+/// Select the best provider based on priority
+fn select_best_provider(
+    resolution: &schalentier::registry::MultiProviderResolution,
+    priority: &[Provider],
+) -> Result<String> {
+    for provider in priority {
+        let provider_str = provider.to_string();
+        if resolution.available_providers.contains_key(&provider_str) {
+            return Ok(provider_str);
+        }
     }
+    
+    // No priority match, use first available
+    resolution
+        .available_providers
+        .keys()
+        .next()
+        .cloned()
+        .ok_or_else(|| anyhow::anyhow!("No providers available"))
+}
+
+const OSV_CACHE_FILE_NAME: &str = "osv_cache.json";
+
+/// Build a [`SecurityAuditor`] with on-disk caching enabled at the given TTL.
+fn cached_auditor(ttl_hours: u64) -> Result<schalentier::security::SecurityAuditor> {
+    use schalentier::security::SecurityAuditor;
+
+    let cache_path = default_data_dir()?.join(OSV_CACHE_FILE_NAME);
+    Ok(SecurityAuditor::new().with_cache(cache_path, ttl_hours))
+}
+
+/// Perform a security audit on a package before install.
+///
+/// Returns `Ok(true)` if installation should proceed (clean, or the user chose to
+/// continue despite advisories) and `Ok(false)` if the user declined. Lets the caller
+/// unwind normally instead of terminating the process.
+async fn perform_security_audit(
+    resolution: &schalentier::registry::MultiProviderResolution,
+    audit_cache_ttl_hours: u64,
+) -> Result<bool> {
+    use inquire::Confirm;
+
+    let mut auditor = cached_auditor(audit_cache_ttl_hours)?;
+    // No installed version at add time; report all known advisories for the package.
+    let report = auditor.audit(resolution, None, false).await?;
+
+    if report.is_clean() {
+        return Ok(true);
+    }
+
+    // Show warnings
+    println!();
+    println!("⚠  SECURITY ADVISORY DETECTED");
+    println!();
+
+    for vuln in &report.vulnerabilities {
+        println!("{}", vuln.format());
+        println!();
+    }
+
+    // Ask user what to do. Critical advisories default to NO; lesser ones default to YES.
+    let proceed = if report.has_critical() {
+        println!("🚨 CRITICAL VULNERABILITIES FOUND!");
+        println!();
+        Confirm::new("This package has critical security vulnerabilities. Install anyway?")
+            .with_default(false)
+            .prompt()?
+    } else {
+        Confirm::new("Install despite security warnings?")
+            .with_default(true)
+            .prompt()?
+    };
+
+    Ok(proceed)
 }
 
 /// Sync configuration with remote
@@ -551,15 +855,37 @@ async fn cmd_sync(
     pull: bool,
     prune: bool,
     dry_run: bool,
+    public_flag: bool,
+    secret_flag: bool,
 ) -> Result<()> {
     use std::process::Command;
 
-    let config = SchalentierConfig::load()?;
+    // Merge a project-local .schalentier/config.toml when running inside a project, so
+    // sync installs honor project tool overrides. sync does not save config, so merging
+    // the project layer on top is safe here.
+    let config = SchalentierConfig::load_with_project()?;
     let state = LocalState::load()?;
     let config_dir = schalentier::state::config_dir()?;
 
     // Determine remote URL
     let remote_url = remote.map(String::from).or(config.sync.remote.clone());
+
+    // Check for gist:// URL scheme
+    if let Some(ref url) = remote_url {
+        if let Some(gist_id) = gist::parse_gist_url(url) {
+            return cmd_sync_gist(
+                &gist_id,
+                push,
+                pull,
+                prune,
+                dry_run,
+                public_flag,
+                secret_flag,
+                &config,
+            )
+            .await;
+        }
+    }
 
     // Dry run - show what would happen
     if dry_run {
@@ -932,9 +1258,231 @@ async fn cmd_sync(
     Ok(())
 }
 
+/// Sync configuration with GitHub Gist (encrypted)
+async fn cmd_sync_gist(
+    gist_id: &str,
+    push: bool,
+    pull: bool,
+    prune: bool,
+    dry_run: bool,
+    public_flag: bool,
+    secret_flag: bool,
+    config: &SchalentierConfig,
+) -> Result<()> {
+    let config_dir = schalentier::state::config_dir()?;
+
+    // Determine visibility: CLI flag > config default
+    let is_public = if public_flag {
+        true
+    } else if secret_flag {
+        false
+    } else {
+        config.sync.gist_public
+    };
+
+    // Dry run - show what would happen
+    if dry_run {
+        println!("Dry run: showing what would happen during gist sync");
+        println!();
+        println!("  Config directory: {}", config_dir.display());
+        println!("  Gist ID: {}", gist_id);
+        println!("  Visibility: {}", if is_public { "public" } else { "secret" });
+        println!(
+            "  Mode: {}",
+            if push && pull {
+                "bidirectional"
+            } else if push {
+                "push"
+            } else if pull {
+                "pull"
+            } else {
+                "bidirectional (default)"
+            }
+        );
+        println!();
+        return Ok(());
+    }
+
+    // Initialize gist client
+    let gist_client = gist::GistClient::new().await?;
+    let password = secrets::get_or_create_master_password()?;
+
+    // PULL: Download and decrypt
+    if pull || (!push && !pull) {
+        let spinner = create_spinner("Downloading encrypted gist...");
+
+        let gist_id_to_fetch = if gist_id == "new" {
+            print_warning("Cannot pull from 'gist://new' - use push to create a new gist");
+            return Ok(());
+        } else {
+            gist_id
+        };
+
+        match gist_client.get_gist(gist_id_to_fetch).await {
+            Ok(encrypted) => {
+                spinner.finish_and_clear();
+                
+                let decrypted = match gist::decrypt_content(&encrypted, &password) {
+                    Ok(content) => content,
+                    Err(e) => {
+                        print_warning(&format!("Failed to decrypt gist: {}", e));
+                        print_info("Make sure you're using the same master password across machines");
+                        return Err(e);
+                    }
+                };
+
+                // Write decrypted config
+                let config_path = config_dir.join("schalentier.toml");
+                std::fs::write(&config_path, &decrypted)?;
+                print_success("Downloaded and decrypted configuration");
+
+                // Reload config and install tools
+                let config_after = SchalentierConfig::load()?;
+                let mut state = LocalState::load()?;
+                let arch = get_arch()?;
+                let os = get_os()?;
+                let data_dir = default_data_dir()?;
+                let registry = create_default_registry(arch, os, data_dir);
+
+                // Find tools in config but not in state (need to install)
+                let to_install: Vec<_> = config_after
+                    .tools
+                    .iter()
+                    .filter(|(name, _)| !state.tools.contains_key(*name))
+                    .collect();
+
+                if !to_install.is_empty() {
+                    print_info(&format!(
+                        "Installing {} new tools from config...",
+                        to_install.len()
+                    ));
+
+                    for (name, entry) in to_install {
+                        info!("Installing {}...", name);
+                        match registry
+                            .install_with_fallback(name, entry.version.as_deref(), entry.provider.clone())
+                            .await
+                        {
+                            Ok((result, provider)) => {
+                                if result.success {
+                                    state.tools.insert(
+                                        name.clone(),
+                                        InstalledTool {
+                                            provider,
+                                            version: result.version,
+                                            path: result.path,
+                                            status: ToolStatus::Installed,
+                                            managed: true,
+                                            installed_at: Some(chrono_lite_now()),
+                                            last_checked: None,
+                                        },
+                                    );
+                                    print_success(&format!("  Installed {}", name));
+                                } else {
+                                    print_warning(&format!(
+                                        "  Failed to install {}: {}",
+                                        name,
+                                        result.message.as_deref().unwrap_or("unknown error")
+                                    ));
+                                }
+                            }
+                            Err(e) => {
+                                print_warning(&format!("  Failed to install {}: {}", name, e));
+                            }
+                        }
+                    }
+                    state.save()?;
+                }
+
+                // PRUNE: Remove tools that are in state but not in config
+                if prune {
+                    let to_remove: Vec<_> = state
+                        .tools
+                        .keys()
+                        .filter(|name| !config_after.tools.contains_key(*name))
+                        .cloned()
+                        .collect();
+
+                    if !to_remove.is_empty() {
+                        print_info(&format!("Pruning {} orphaned tools...", to_remove.len()));
+
+                        for name in to_remove {
+                            if let Some(tool) = state.tools.remove(&name) {
+                                if let Some(provider) = registry.get(tool.provider.clone()) {
+                                    match provider.uninstall(&name).await {
+                                        Ok(_) => print_success(&format!("  Removed {}", name)),
+                                        Err(e) => {
+                                            print_warning(&format!("  Failed to remove {}: {}", name, e))
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        state.save()?;
+                    }
+                }
+            }
+            Err(e) => {
+                spinner.finish_and_clear();
+                print_warning(&format!("Failed to fetch gist: {}", e));
+            }
+        }
+    }
+
+    // PUSH: Encrypt and upload
+    if push {
+        let config_path = config_dir.join("schalentier.toml");
+        
+        if !config_path.exists() {
+            print_warning("No schalentier.toml found. Run 'schalentier init' first.");
+            return Ok(());
+        }
+
+        let plaintext = std::fs::read_to_string(&config_path)?;
+        let encrypted = gist::encrypt_content(&plaintext, &password)?;
+
+        if gist_id == "new" {
+            // Create new gist
+            let spinner = create_spinner("Creating encrypted gist...");
+            let new_gist_id = gist_client.create_gist(&encrypted, is_public).await?;
+            spinner.finish_and_clear();
+
+            print_success(&format!(
+                "Created {} gist: gist://{}",
+                if is_public { "public" } else { "secret" },
+                new_gist_id
+            ));
+            print_info("Add this to your config:");
+            println!("  [sync]");
+            println!("  remote = \"gist://{}\"", new_gist_id);
+        } else {
+            // Update existing gist
+            let spinner = create_spinner("Updating encrypted gist...");
+            gist_client.update_gist(gist_id, &encrypted).await?;
+            spinner.finish_and_clear();
+            
+            print_success(&format!("Updated gist: gist://{}", gist_id));
+        }
+    }
+
+    print_success("Gist sync complete!");
+    Ok(())
+}
+
+/// Returns the version a tool is pinned to in config, unless the pin is `"latest"`
+/// (which means "no pin, always update").
+fn pinned_version<'a>(config: &'a SchalentierConfig, tool_name: &str) -> Option<&'a str> {
+    config
+        .tools
+        .get(tool_name)
+        .and_then(|entry| entry.version.as_deref())
+        .filter(|v| *v != "latest")
+}
+
 /// Update installed packages
-async fn cmd_update(name: Option<&str>, dry_run: bool) -> Result<()> {
+async fn cmd_update(name: Option<&str>, dry_run: bool, force: bool) -> Result<()> {
     let mut state = LocalState::load()?;
+    let config = SchalentierConfig::load_with_project()?;
     let arch = get_arch()?;
     let os = get_os()?;
     let data_dir = default_data_dir()?;
@@ -982,6 +1530,21 @@ async fn cmd_update(name: Option<&str>, dry_run: bool) -> Result<()> {
         }
 
         let current_version = tool.version.as_deref().unwrap_or("unknown");
+
+        // Respect a version pin set in schalentier.toml unless --force overrides it.
+        if !force {
+            if let Some(pin) = pinned_version(&config, tool_name) {
+                println!(
+                    "  {} {} [{}] - pinned to {}, skipping (use --force to override)",
+                    tool_name,
+                    format_version(current_version),
+                    tool.provider,
+                    pin
+                );
+                up_to_date += 1;
+                continue;
+            }
+        }
 
         // Get the provider for this tool
         if let Some(provider) = registry.get(tool.provider.clone()) {
@@ -1153,7 +1716,8 @@ async fn cmd_doctor(fix: bool) -> Result<()> {
 
     let data_dir = default_data_dir()?;
     let state = LocalState::load()?;
-    let config = SchalentierConfig::load()?;
+    // Read-only diagnostics: merge project config so doctor reflects the effective setup.
+    let config = SchalentierConfig::load_with_project()?;
     let config_dir = schalentier::state::config_dir()?;
 
     let mut issues_found = 0;
@@ -1233,17 +1797,34 @@ async fn cmd_doctor(fix: bool) -> Result<()> {
     print!("Environment scripts: ");
     let env_sh = data_dir.join("env.sh");
     let env_fish = data_dir.join("env.fish");
-    let env_ps1 = data_dir.join("env.ps1");
-    if env_sh.exists() && env_fish.exists() && env_ps1.exists() {
+    if env_sh.exists() && env_fish.exists() {
         println!("OK");
     } else {
         println!("MISSING");
         issues_found += 1;
         if fix {
-            write_env_scripts(&data_dir)?;
+            write_env_scripts(&data_dir, &state.bootstrap)?;
             println!("  -> Generated");
             issues_fixed += 1;
         }
+    }
+
+    // Informational only: whether the shell rc file already sources the env script.
+    // `doctor --fix` never writes to rc files itself (an explicit `init`-time choice).
+    print!("Shell config sourcing: ");
+    if let Some(shell) = ShellType::detect() {
+        match rc_file_path(shell) {
+            Some(rc) if is_sourced(&rc, &data_dir, shell) => {
+                println!("OK ({})", rc.display());
+            }
+            Some(rc) => {
+                println!("NOT SOURCED ({})", rc.display());
+                println!("  -> Run 'schalentier init --setup-shell' or add the source line manually");
+            }
+            None => println!("UNKNOWN (could not determine home directory)"),
+        }
+    } else {
+        println!("UNKNOWN (could not detect shell)");
     }
 
     println!("\n=== Available Providers ===\n");
@@ -1394,6 +1975,34 @@ async fn cmd_doctor(fix: bool) -> Result<()> {
         }
     }
 
+    // Project-local config, if run from inside a project directory
+    if let Some(project_path) = schalentier::state::find_project_config() {
+        println!("\n=== Project Context ===\n");
+        println!("Project config: {}", project_path.display());
+
+        if let Ok(project_config) = SchalentierConfig::load_from(&project_path) {
+            if !project_config.tools.is_empty() {
+                println!("  Tools overridden:");
+                for (name, entry) in &project_config.tools {
+                    match &entry.version {
+                        Some(v) => println!("    - {} (v{})", name, v),
+                        None => println!("    - {}", name),
+                    }
+                }
+            }
+            if !project_config.dotfiles.is_empty() {
+                println!("  Dotfiles overridden: {}", project_config.dotfiles.len());
+            }
+        }
+
+        if let Some(project_dir) = schalentier::state::project_dir_from(&project_path) {
+            let project_secrets = secrets::secrets_file_path(&project_dir);
+            if project_secrets.exists() {
+                println!("  Project secrets: {}", project_secrets.display());
+            }
+        }
+    }
+
     // Summary
     println!("\n=== Summary ===\n");
     if issues_found == 0 && state.initialized {
@@ -1479,14 +2088,58 @@ async fn cmd_remove(name: &str, keep_installed: bool) -> Result<()> {
 }
 
 /// List managed tools
-async fn cmd_list(detailed: bool, provider_filter: Option<&str>) -> Result<()> {
-    let config = SchalentierConfig::load()?;
+/// One-line cached security status for `list --security`, e.g. "✓ clean" or
+/// "⚠ 2 advisories". Never hits the network — reads only what `schalentier audit`
+/// has already cached, so it stays fast for everyday `list` use.
+fn security_status_line(
+    auditor: &schalentier::security::SecurityAuditor,
+    pkg_registry: &schalentier::registry::PackageRegistry,
+    name: &str,
+    installed: Option<&schalentier::config::InstalledTool>,
+) -> String {
+    let Ok(resolution) = pkg_registry.resolve_all_providers(name) else {
+        return "⊘ not in registry".to_string();
+    };
+    let auditable = resolution
+        .available_providers
+        .keys()
+        .any(|p| schalentier::security::osv::OsvAuditor::ecosystem_for_provider(p).is_some());
+    if !auditable {
+        return "⊘ no OSV-supported ecosystem".to_string();
+    }
+
+    let version = installed.and_then(|t| t.version.as_deref());
+    match auditor.peek_cache(&resolution, version) {
+        Some(report) if report.is_clean() => "✓ clean".to_string(),
+        Some(report) => format!(
+            "⚠ {} advisor{}",
+            report.total_advisories(),
+            if report.total_advisories() == 1 { "y" } else { "ies" }
+        ),
+        None => "? not checked (run `schalentier audit`)".to_string(),
+    }
+}
+
+async fn cmd_list(detailed: bool, provider_filter: Option<&str>, security: bool) -> Result<()> {
+    // Read-only: merge project config so list shows project tool overrides in context.
+    let config = SchalentierConfig::load_with_project()?;
     let state = LocalState::load()?;
 
     if config.tools.is_empty() && state.tools.is_empty() {
         println!("No tools managed. Use 'schalentier add <tool>' to add one.");
         return Ok(());
     }
+
+    let security_auditor = if security {
+        Some(cached_auditor(config.settings.audit_cache_ttl_hours)?)
+    } else {
+        None
+    };
+    let pkg_registry = if security {
+        Some(schalentier::registry::PackageRegistry::load()?)
+    } else {
+        None
+    };
 
     // Parse provider filter
     let filter = provider_filter.map(|p| match p.to_lowercase().as_str() {
@@ -1578,6 +2231,12 @@ async fn cmd_list(detailed: bool, provider_filter: Option<&str>) -> Result<()> {
             } else {
                 println!("  Status: Not installed");
             }
+            if let (Some(auditor), Some(pkg_registry)) = (&security_auditor, &pkg_registry) {
+                println!(
+                    "  Security: {}",
+                    security_status_line(auditor, pkg_registry, name, installed)
+                );
+            }
             println!();
         } else {
             // Compact view
@@ -1600,9 +2259,16 @@ async fn cmd_list(detailed: bool, provider_filter: Option<&str>) -> Result<()> {
                 .map(|p| format!("[{}]", p))
                 .unwrap_or_default();
 
+            let security_str = match (&security_auditor, &pkg_registry) {
+                (Some(auditor), Some(pkg_registry)) => {
+                    format!(" {}", security_status_line(auditor, pkg_registry, name, installed))
+                }
+                _ => String::new(),
+            };
+
             println!(
-                "  {} {} {} {} {}",
-                status_symbol, name, version, provider_str, status_text
+                "  {} {} {} {} {}{}",
+                status_symbol, name, version, provider_str, status_text, security_str
             );
         }
     }
@@ -1889,8 +2555,7 @@ exec {command} "$@"
     // Write script
     std::fs::write(&script_path, &script)?;
 
-    // Make executable on Unix
-    #[cfg(unix)]
+    // Make executable
     {
         use std::os::unix::fs::PermissionsExt;
         let mut perms = std::fs::metadata(&script_path)?.permissions();
@@ -2128,9 +2793,55 @@ fn cmd_config(action: ConfigAction) -> Result<()> {
     }
 }
 
+/// Build a [`schalentier::template::TemplateContext`] only if at least one dotfile
+/// entry sets `_template = true` — avoids prompting for the secrets master password
+/// on every `config apply`/`diff` for users who never opted into templating.
+fn build_template_context_if_needed(
+    config: &SchalentierConfig,
+) -> Result<Option<schalentier::template::TemplateContext>> {
+    let any_templated = config.dotfiles.values().any(|v| {
+        v.as_table()
+            .and_then(|t| t.get("_template"))
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false)
+    });
+
+    if !any_templated {
+        return Ok(None);
+    }
+
+    let os = get_os()?;
+    let arch = get_arch()?;
+
+    let password = secrets::get_or_create_master_password()?;
+    let global_dir = schalentier::state::config_dir()?;
+    let mut store = secrets::load_store(&secrets::secrets_file_path(&global_dir), &password)?;
+
+    // Project secrets override global secrets with the same name.
+    if let Some(project_path) = schalentier::state::find_project_config() {
+        if let Some(project_dir) = schalentier::state::project_dir_from(&project_path) {
+            let project_store =
+                secrets::load_store(&secrets::secrets_file_path(&project_dir), &password)?;
+            store.secrets.extend(project_store.secrets);
+        }
+    }
+
+    let secret_values = store
+        .secrets
+        .iter()
+        .map(|(name, entry)| (name.clone(), entry.value.clone()))
+        .collect();
+
+    let ctx = schalentier::template::TemplateContext::from_system(&os.to_string(), &arch.to_string())
+        .with_secrets(secret_values)
+        .with_variables(config.variables.clone());
+
+    Ok(Some(ctx))
+}
+
 /// Apply all dotfile patches
 fn config_apply() -> Result<()> {
-    let config = SchalentierConfig::load()?;
+    let config = SchalentierConfig::load_with_project()?;
 
     if config.dotfiles.is_empty() {
         println!("No dotfiles configured.");
@@ -2143,7 +2854,8 @@ fn config_apply() -> Result<()> {
         return Ok(());
     }
 
-    let manager = DotfileManager::from_config(&config.dotfiles)?;
+    let ctx = build_template_context_if_needed(&config)?;
+    let manager = DotfileManager::from_config_with_context(&config.dotfiles, ctx.as_ref())?;
     let results = manager.apply()?;
 
     let mut created = 0;
@@ -2185,14 +2897,15 @@ fn config_apply() -> Result<()> {
 
 /// Show diff of what would change
 fn config_diff() -> Result<()> {
-    let config = SchalentierConfig::load()?;
+    let config = SchalentierConfig::load_with_project()?;
 
     if config.dotfiles.is_empty() {
         println!("No dotfiles configured.");
         return Ok(());
     }
 
-    let manager = DotfileManager::from_config(&config.dotfiles)?;
+    let ctx = build_template_context_if_needed(&config)?;
+    let manager = DotfileManager::from_config_with_context(&config.dotfiles, ctx.as_ref())?;
     let diffs = manager.diff()?;
 
     let mut has_changes = false;
@@ -2377,6 +3090,236 @@ fn cmd_completions(shell: Shell) {
     generate(shell, &mut cmd, "schalentier", &mut std::io::stdout());
 }
 
+/// Manage encrypted secrets
+/// Path to the global secrets store (~/.config/schalentier/secrets.enc).
+fn global_secrets_path() -> Result<std::path::PathBuf> {
+    let config_dir = schalentier::state::config_dir()?;
+    Ok(secrets::secrets_file_path(&config_dir))
+}
+
+/// Path to the project-local secrets store, if a project config is found by
+/// walking up from the current directory.
+fn project_secrets_path() -> Option<std::path::PathBuf> {
+    schalentier::state::find_project_config()
+        .and_then(|p| schalentier::state::project_dir_from(&p))
+        .map(|dir| secrets::secrets_file_path(&dir))
+}
+
+/// The secrets store path a `set`/`delete`/`edit` should write to: project-local
+/// if inside a project (and `--global` wasn't passed), otherwise global.
+fn effective_secrets_path(force_global: bool) -> Result<std::path::PathBuf> {
+    if !force_global {
+        if let Some(path) = project_secrets_path() {
+            return Ok(path);
+        }
+    }
+    global_secrets_path()
+}
+
+/// Load and merge global + project secret stores (project entries win on name
+/// conflict), for read-oriented operations (`get`, `list`, `export`, `shell`, `run`).
+fn load_merged_store(
+    password: &age::secrecy::SecretString,
+) -> Result<schalentier::secrets::SecretStore> {
+    let mut store = secrets::load_store(&global_secrets_path()?, password)?;
+    if let Some(project_path) = project_secrets_path() {
+        let project_store = secrets::load_store(&project_path, password)?;
+        store.secrets.extend(project_store.secrets);
+    }
+    Ok(store)
+}
+
+fn cmd_secret(action: SecretAction) -> Result<()> {
+    use age::secrecy::ExposeSecret;
+    use schalentier::secrets::{SecretEntry, SecretStore};
+
+    match action {
+        SecretAction::Set {
+            name,
+            value,
+            tags,
+            global,
+        } => {
+            let secrets_path = effective_secrets_path(global)?;
+            let password = secrets::get_or_create_master_password()?;
+            let mut store = secrets::load_store(&secrets_path, &password)?;
+
+            let value = match value {
+                Some(v) => v,
+                None => secrets::prompt_password(&format!("Value for '{}':", name))?
+                    .expose_secret()
+                    .to_string(),
+            };
+
+            store
+                .secrets
+                .insert(name.clone(), SecretEntry { value, tags });
+            secrets::save_store(&secrets_path, &store, &password)?;
+
+            print_success(&format!("Secret '{}' saved", name));
+        }
+
+        SecretAction::Get { name } => {
+            let password = secrets::get_or_create_master_password()?;
+            let store = load_merged_store(&password)?;
+
+            let entry = store.secrets.get(&name).ok_or_else(|| {
+                anyhow::anyhow!(schalentier::error::SchalentierError::SecretNotFound {
+                    name: name.clone()
+                })
+            })?;
+
+            print!("{}", entry.value);
+        }
+
+        SecretAction::List { tags } => {
+            let password = secrets::get_or_create_master_password()?;
+
+            match project_secrets_path() {
+                Some(project_path) => {
+                    let project_store = secrets::load_store(&project_path, &password)?;
+                    let global_store = secrets::load_store(&global_secrets_path()?, &password)?;
+
+                    println!("Project secrets ({}):", project_path.display());
+                    print_secret_list(&project_store, tags.as_deref());
+                    println!();
+                    println!("Global secrets ({}):", global_secrets_path()?.display());
+                    print_secret_list(&global_store, tags.as_deref());
+                }
+                None => {
+                    let store = secrets::load_store(&global_secrets_path()?, &password)?;
+                    print_secret_list(&store, tags.as_deref());
+                }
+            }
+        }
+
+        SecretAction::Delete { name, global } => {
+            let secrets_path = effective_secrets_path(global)?;
+            let password = secrets::get_or_create_master_password()?;
+            let mut store = secrets::load_store(&secrets_path, &password)?;
+
+            if store.secrets.remove(&name).is_none() {
+                return Err(anyhow::anyhow!(
+                    schalentier::error::SchalentierError::SecretNotFound { name }
+                ));
+            }
+
+            secrets::save_store(&secrets_path, &store, &password)?;
+            print_success(&format!("Secret '{}' deleted", name));
+        }
+
+        SecretAction::Export { shell, tags } => {
+            let password = secrets::get_or_create_master_password()?;
+            let store = load_merged_store(&password)?;
+
+            let env = secrets::resolve_scoped_env(&store, tags.as_deref());
+            for (name, value) in env {
+                println!("{}", secrets::shell_export_line(&shell, &name, &value));
+            }
+        }
+
+        SecretAction::Edit => {
+            let secrets_path = effective_secrets_path(false)?;
+            let password = secrets::get_or_create_master_password()?;
+            let store = secrets::load_store(&secrets_path, &password)?;
+
+            let plaintext = serde_json::to_string_pretty(&store)?;
+
+            let mut tmp = std::env::temp_dir();
+            tmp.push(format!("schalentier-secrets-{}.json", std::process::id()));
+            std::fs::write(&tmp, &plaintext)?;
+
+            let editor = std::env::var("EDITOR").unwrap_or_else(|_| "vi".to_string());
+            let status = std::process::Command::new(&editor).arg(&tmp).status();
+
+            let edited = std::fs::read_to_string(&tmp);
+            let _ = std::fs::remove_file(&tmp);
+
+            let status = status?;
+            if !status.success() {
+                return Err(anyhow::anyhow!("Editor exited with an error"));
+            }
+
+            let new_store: SecretStore = serde_json::from_str(&edited?)
+                .map_err(|e| anyhow::anyhow!("Invalid secrets JSON: {e}"))?;
+            secrets::save_store(&secrets_path, &new_store, &password)?;
+            print_success("Secrets updated");
+        }
+
+        SecretAction::ChangePassword => {
+            let old_password = secrets::get_or_create_master_password()?;
+            let store = load_merged_store(&old_password)?;
+
+            let new_password = secrets::prompt_password("New master password:")?;
+            secrets::save_store(&global_secrets_path()?, &store, &new_password)?;
+            secrets::set_master_password(new_password.expose_secret())?;
+
+            print_success("Master password changed");
+        }
+
+        SecretAction::Shell { tags } => {
+            let password = secrets::get_or_create_master_password()?;
+            let store = load_merged_store(&password)?;
+            let env = secrets::resolve_scoped_env(&store, tags.as_deref());
+
+            let shell_type = ShellType::detect().unwrap_or(ShellType::Bash);
+            let shell_bin = match shell_type {
+                ShellType::Bash => "bash",
+                ShellType::Zsh => "zsh",
+                ShellType::Fish => "fish",
+            };
+
+            print_info(&format!(
+                "Spawning {} with {} secret(s){}...",
+                shell_bin,
+                env.len(),
+                tags.as_ref()
+                    .map(|t| format!(" [{}]", t.join(", ")))
+                    .unwrap_or_default()
+            ));
+
+            let status = std::process::Command::new(shell_bin).envs(env).status()?;
+            std::process::exit(status.code().unwrap_or(1));
+        }
+
+        SecretAction::Run { tags, command } => {
+            let password = secrets::get_or_create_master_password()?;
+            let store = load_merged_store(&password)?;
+            let env = secrets::resolve_scoped_env(&store, tags.as_deref());
+
+            let (program, args) = command
+                .split_first()
+                .ok_or_else(|| anyhow::anyhow!("No command given"))?;
+
+            let status = std::process::Command::new(program)
+                .args(args)
+                .envs(env)
+                .status()?;
+            std::process::exit(status.code().unwrap_or(1));
+        }
+    }
+
+    Ok(())
+}
+
+/// Print a sorted `NAME [tags]` list for a secret store, or a "none" message.
+fn print_secret_list(store: &schalentier::secrets::SecretStore, tags: Option<&[String]>) {
+    let mut matches = store.filter_by_tags(tags);
+    matches.sort_by_key(|(name, _)| name.to_string());
+
+    if matches.is_empty() {
+        println!("  (none)");
+    } else {
+        for (name, entry) in matches {
+            if entry.tags.is_empty() {
+                println!("  {}", name);
+            } else {
+                println!("  {} [{}]", name, entry.tags.join(", "));
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2411,4 +3354,228 @@ mod tests {
         assert!(version_is_newer("1.0.1", "1.0.0-beta"));
         assert!(version_is_newer("1.0.0", "0.9.9-rc1"));
     }
+
+    #[test]
+    fn test_pinned_version_returns_pin() {
+        let mut config = SchalentierConfig::default();
+        config.tools.insert(
+            "bat".to_string(),
+            ToolEntry {
+                provider: None,
+                version: Some("0.24.0".to_string()),
+                options: Default::default(),
+            },
+        );
+        assert_eq!(pinned_version(&config, "bat"), Some("0.24.0"));
+    }
+
+    #[test]
+    fn test_pinned_version_latest_means_unpinned() {
+        let mut config = SchalentierConfig::default();
+        config.tools.insert(
+            "bat".to_string(),
+            ToolEntry {
+                provider: None,
+                version: Some("latest".to_string()),
+                options: Default::default(),
+            },
+        );
+        assert_eq!(pinned_version(&config, "bat"), None);
+    }
+
+    #[test]
+    fn test_pinned_version_no_entry_is_unpinned() {
+        let config = SchalentierConfig::default();
+        assert_eq!(pinned_version(&config, "bat"), None);
+    }
+}
+
+fn cmd_registry(action: schalentier::cli::RegistryAction) -> anyhow::Result<()> {
+    use schalentier::cli::RegistryAction;
+
+    match action {
+        RegistryAction::Validate => {
+            println!("Validating registry...\n");
+
+            let registry = schalentier::registry::PackageRegistry::load()?;
+            let errors = registry.validate();
+
+            if errors.is_empty() {
+                print_success("Registry is valid");
+                println!("\nPackage count: {}", registry.package_count());
+            } else {
+                println!("Found {} error(s):\n", errors.len());
+                for error in errors {
+                    println!("  ✗ {}", error);
+                }
+                std::process::exit(1);
+            }
+        }
+        RegistryAction::Info => {
+            let registry = schalentier::registry::PackageRegistry::load()?;
+            let stats = registry.stats();
+
+            println!("Registry Statistics\n");
+            println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+            println!("Total packages:  {}", stats.total_packages);
+            println!("Total aliases:   {}", stats.total_aliases);
+            println!();
+            println!("Packages by provider:");
+
+            let mut providers: Vec<_> = stats.provider_counts.iter().collect();
+            providers.sort_by(|a, b| b.1.cmp(a.1));
+
+            for (provider, count) in providers {
+                let percentage = (*count as f64 / stats.total_packages as f64) * 100.0;
+                println!(
+                    "  {:12} {:4} packages ({:.1}%)",
+                    provider, count, percentage
+                );
+            }
+        }
+        RegistryAction::Update => {
+            cmd_registry_update()?;
+        }
+    }
+
+    Ok(())
+}
+
+fn cmd_registry_update() -> anyhow::Result<()> {
+    println!("Downloading latest registry from GitHub...");
+
+    let url = "https://raw.githubusercontent.com/cosinusalpha/schalentier/main/registry/packages.json";
+
+    let rt = tokio::runtime::Runtime::new()?;
+    let content = rt.block_on(async {
+        let client = reqwest::Client::new();
+        let response = client.get(url).send().await?;
+
+        if !response.status().is_success() {
+            return Err(anyhow::anyhow!(
+                "Failed to download registry: HTTP {}",
+                response.status()
+            ));
+        }
+
+        let content = response.text().await?;
+
+        let _: schalentier::registry::Registry = serde_json::from_str(&content)
+            .map_err(|e| anyhow::anyhow!("Downloaded registry is invalid: {}", e))?;
+
+        Ok::<_, anyhow::Error>(content)
+    })?;
+
+    let path = dirs::data_dir()
+        .ok_or_else(|| anyhow::anyhow!("No data directory"))?
+        .join("schalentier/registry/packages.json");
+
+    std::fs::create_dir_all(path.parent().unwrap())?;
+    std::fs::write(&path, content)?;
+
+    print_success(&format!("Registry updated to {}", path.display()));
+    Ok(())
+}
+
+async fn cmd_audit(package: Option<String>, refresh: bool) -> anyhow::Result<()> {
+    use schalentier::registry::PackageRegistry;
+
+    let state = LocalState::load()?;
+    let config = SchalentierConfig::load_with_project()?;
+    let pkg_registry = PackageRegistry::load()?;
+    let mut auditor = cached_auditor(config.settings.audit_cache_ttl_hours)?;
+
+    println!("Running security audit (via OSV.dev)...\n");
+
+    let packages_to_check = if let Some(pkg) = package {
+        vec![pkg]
+    } else {
+        state.tools.keys().cloned().collect()
+    };
+
+    if packages_to_check.is_empty() {
+        println!("No packages to audit (none installed)");
+        return Ok(());
+    }
+
+    use schalentier::security::osv::OsvAuditor;
+
+    let mut total_advisories = 0;
+    let mut vuln_packages = 0;
+    let mut has_critical = false;
+
+    for pkg_name in &packages_to_check {
+        let installed = state.tools.get(pkg_name);
+        print!(
+            "  {} ({})...",
+            pkg_name,
+            installed.map(|t| t.provider.to_string()).unwrap_or_else(|| "?".to_string())
+        );
+
+        match pkg_registry.resolve_all_providers(pkg_name) {
+            Ok(resolution) => {
+                // OSV can only audit packages from ecosystems it covers (cargo/uv/npm/go).
+                // Binary/brew/system tools have no queryable ecosystem — say so plainly
+                // rather than printing a reassuring "clean".
+                let auditable = resolution
+                    .available_providers
+                    .keys()
+                    .any(|p| OsvAuditor::ecosystem_for_provider(p).is_some());
+                if !auditable {
+                    println!(" ⊘ skipped (no OSV-supported ecosystem)");
+                    continue;
+                }
+
+                // Narrow to the installed version when known, else check the whole package.
+                let version = installed.and_then(|t| t.version.as_deref());
+                match auditor.audit(&resolution, version, refresh).await {
+                    Ok(report) => {
+                        if report.is_clean() {
+                            if report.errors.is_empty() {
+                                println!(" ✓ clean");
+                            } else {
+                                println!(" ⚠ no data ({})", report.errors.join("; "));
+                            }
+                        } else {
+                            println!();
+                            for vuln in &report.vulnerabilities {
+                                println!();
+                                println!("{}", vuln.format());
+                            }
+                            total_advisories += report.total_advisories();
+                            vuln_packages += 1;
+                            has_critical = has_critical || report.has_critical();
+                        }
+                    }
+                    Err(e) => {
+                        println!(" ✗ audit failed: {}", e);
+                    }
+                }
+            }
+            Err(_) => {
+                println!(" ⊘ skipped (not in registry)");
+            }
+        }
+    }
+
+    println!();
+
+    if total_advisories == 0 {
+        print_success("All packages passed security audit");
+    } else {
+        println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+        let kind = if has_critical { "high/critical" } else { "known" };
+        println!(
+            "⚠️  {} advisor{} ({} severity) across {} package(s)",
+            total_advisories,
+            if total_advisories == 1 { "y" } else { "ies" },
+            kind,
+            vuln_packages,
+        );
+        println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+        println!();
+        println!("Update packages with: schalentier update");
+    }
+
+    Ok(())
 }

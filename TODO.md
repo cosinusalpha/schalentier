@@ -4,11 +4,16 @@
 
 ---
 
-## Phase 7: Advanced Features - TODO
+## Phase 7: Advanced Features - MOSTLY DONE
 
 **Goal:** Secrets management, templating, and project-local configuration.
 
-### Task 7.1: Secrets Management - TODO
+**Status summary:**
+- 7.1 Secrets management — **DONE** (`src/secrets.rs`: age + keyring, plus `shell`/`run` subcommands beyond spec).
+- 7.2 Templating — **DONE** (`src/template.rs` wired into `src/dotfiles.rs`; `[variables]` supported).
+- 7.3 Project-local config — **DONE**. Merge (`SchalentierConfig::load_with_project`), project secrets, and `doctor` reporting implemented. `load_with_project` now used by `config apply`/`config diff`, `sync`, `doctor`, `list`, and `update` (project tool overrides — including version pins — apply to those). `add`/`remove` intentionally use plain `load()` because they mutate-and-save global config (merging the project layer would corrupt the saved global file).
+
+### Task 7.1: Secrets Management - DONE
 
 - **Priority:** HIGH (foundation for templating)
 - **Dependencies:** `age` (encryption), `keyring` (system keyring)
@@ -33,7 +38,6 @@ System Keyring:
 - Master password stored in OS keyring after first use:
   - Linux: Secret Service (GNOME Keyring / KWallet)
   - macOS: Keychain
-  - Windows: Credential Manager
 
 **Secret File Format (before encryption):**
 
@@ -52,7 +56,7 @@ schalentier secret set <NAME> [--value <VALUE>]   # Interactive if no --value
 schalentier secret get <NAME>                      # Print to stdout (no newline)
 schalentier secret list                            # List names only
 schalentier secret delete <NAME>                   # Remove secret
-schalentier secret export [--shell bash|fish|pwsh] # Output for eval/source
+schalentier secret export [--shell bash|fish]      # Output for eval/source
 schalentier secret edit                            # Decrypt → $EDITOR → re-encrypt
 schalentier secret change-password                 # Re-encrypt with new password
 ```
@@ -99,12 +103,12 @@ ghp_xxxxxxxxxxxx
 
 # Fish shell
 $ schalentier secret export --shell fish | source
-
-# PowerShell
-PS> Invoke-Expression (schalentier secret export --shell pwsh)
 ```
 
-**Auto-export in env.sh (opt-in via config):**
+**Auto-export in env.sh (opt-in via config):** — NOT YET IMPLEMENTED. The
+`auto_export_secrets` setting below is not present in the `Settings` struct
+(`src/config.rs`) and `env.sh` does not emit the snippet. Implement the field + shell hook
+before documenting in the README.
 
 ```toml
 # schalentier.toml
@@ -128,7 +132,7 @@ fi
 
 ---
 
-### Task 7.2: Templating Engine - TODO
+### Task 7.2: Templating Engine - DONE
 
 - **Priority:** HIGH (enables dynamic configs)
 - **Dependencies:** `minijinja` (Jinja2-compatible, pure Rust)
@@ -139,7 +143,7 @@ fi
 **Context Variables:**
 
 ```
-{{ os }}              → "linux" | "macos" | "windows"
+{{ os }}              → "linux" | "macos"
 {{ arch }}            → "x86_64" | "aarch64"
 {{ hostname }}        → machine hostname
 {{ username }}        → current user
@@ -232,7 +236,7 @@ Error: Template error in ~/.config/gh/hosts.yml
 
 ---
 
-### Task 7.3: Project-Local Configuration - TODO
+### Task 7.3: Project-Local Configuration - PARTIAL (see status summary above)
 
 - **Priority:** MEDIUM (after 7.1 and 7.2)
 - **Files:** Modifications to config loading in `src/config.rs`, `src/state.rs`
@@ -341,12 +345,6 @@ minijinja = "2"           # Jinja2-compatible template engine
 ---
 
 ## Pre-Release Checklist
-
-### Bugs to Fix Before v1.0
-
-| Bug | Severity | Status |
-|-----|----------|--------|
-| **install.sh expects .tar.gz** but release workflow uploads raw binaries | Critical | TODO (fix when releasing) |
 
 ### UX Improvements
 

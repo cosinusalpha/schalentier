@@ -16,6 +16,7 @@ use serde_json::Value as JsonValue;
 use toml::Value as TomlValue;
 
 use crate::error::Result;
+use crate::template::{self, TemplateContext};
 
 /// Supported configuration file formats
 #[derive(Debug, Clone, PartialEq)]
@@ -92,8 +93,21 @@ pub struct DotfileManager {
 }
 
 impl DotfileManager {
-    /// Create a new DotfileManager from the dotfiles section of config
+    /// Create a new DotfileManager from the dotfiles section of config.
+    ///
+    /// `ctx` is required if any entry sets `_template = true`; those entries have
+    /// their string values (and `_content`) rendered through minijinja before
+    /// merging. Entries without `_template` are applied unchanged, as before.
     pub fn from_config(dotfiles: &HashMap<String, TomlValue>) -> Result<Self> {
+        Self::from_config_with_context(dotfiles, None)
+    }
+
+    /// Same as [`Self::from_config`], but renders `_template = true` entries
+    /// using the given [`TemplateContext`].
+    pub fn from_config_with_context(
+        dotfiles: &HashMap<String, TomlValue>,
+        ctx: Option<&TemplateContext>,
+    ) -> Result<Self> {
         let mut patches = Vec::new();
 
         for (path_str, value) in dotfiles {
@@ -102,10 +116,22 @@ impl DotfileManager {
 
             // Check for _content (replace mode) or _format override
             let (settings, content, final_format) = if let Some(table) = value.as_table() {
+                let is_templated = table
+                    .get("_template")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
+
                 let content = table
                     .get("_content")
                     .and_then(|v| v.as_str())
                     .map(String::from);
+                let content = match (&content, is_templated) {
+                    (Some(c), true) => {
+                        Some(render_templated(c, ctx, path_str)?)
+                    }
+                    _ => content,
+                };
+
                 let format_override = table.get("_format").and_then(|v| v.as_str());
 
                 let final_format = if let Some(fmt) = format_override {
@@ -127,7 +153,12 @@ impl DotfileManager {
                 let mut settings_table = toml::map::Map::new();
                 for (k, v) in table {
                     if !k.starts_with('_') {
-                        settings_table.insert(k.clone(), v.clone());
+                        let v = if is_templated {
+                            render_templated_toml_value(v, ctx, path_str)?
+                        } else {
+                            v.clone()
+                        };
+                        settings_table.insert(k.clone(), v);
                     }
                 }
 
@@ -497,6 +528,42 @@ fn merge_keyvalue(current: Option<&str>, settings: &TomlValue) -> Result<String>
 
 // === Helper functions ===
 
+/// Render a single string through the template engine, if a context is available.
+/// Errors are annotated with the dotfile path they occurred in.
+fn render_templated(text: &str, ctx: Option<&TemplateContext>, dotfile_path: &str) -> Result<String> {
+    let Some(ctx) = ctx else {
+        return Ok(text.to_string());
+    };
+    template::render(text, ctx)
+        .map_err(|e| anyhow::anyhow!("Template error in {}\n  \u{2192} {}", dotfile_path, e))
+}
+
+/// Render every string leaf in a TOML value through the template engine.
+fn render_templated_toml_value(
+    value: &TomlValue,
+    ctx: Option<&TemplateContext>,
+    dotfile_path: &str,
+) -> Result<TomlValue> {
+    match value {
+        TomlValue::String(s) => Ok(TomlValue::String(render_templated(s, ctx, dotfile_path)?)),
+        TomlValue::Array(arr) => {
+            let rendered: Result<Vec<_>> = arr
+                .iter()
+                .map(|v| render_templated_toml_value(v, ctx, dotfile_path))
+                .collect();
+            Ok(TomlValue::Array(rendered?))
+        }
+        TomlValue::Table(table) => {
+            let mut rendered = toml::map::Map::new();
+            for (k, v) in table {
+                rendered.insert(k.clone(), render_templated_toml_value(v, ctx, dotfile_path)?);
+            }
+            Ok(TomlValue::Table(rendered))
+        }
+        other => Ok(other.clone()),
+    }
+}
+
 /// Expand ~ to home directory
 fn expand_path(path: &str) -> PathBuf {
     if let Some(stripped) = path.strip_prefix("~/") {
@@ -559,7 +626,7 @@ fn deep_merge_json(target: &mut JsonValue, source: &JsonValue) {
 }
 
 /// Deep merge TOML values (target is modified in place)
-fn deep_merge_toml(target: &mut TomlValue, source: &TomlValue) {
+pub(crate) fn deep_merge_toml(target: &mut TomlValue, source: &TomlValue) {
     match (target, source) {
         (TomlValue::Table(target_map), TomlValue::Table(source_map)) => {
             for (key, source_value) in source_map {
@@ -695,5 +762,101 @@ a = 1
     fn test_expand_path() {
         let expanded = expand_path("~/.config/test");
         assert!(!expanded.to_string_lossy().starts_with("~"));
+    }
+
+    fn test_ctx() -> TemplateContext {
+        let mut secrets = HashMap::new();
+        secrets.insert("GITHUB_TOKEN".to_string(), "ghp_xxx".to_string());
+        TemplateContext {
+            os: "linux".to_string(),
+            arch: "x86_64".to_string(),
+            hostname: "my-laptop".to_string(),
+            username: "ada".to_string(),
+            home: "/home/ada".to_string(),
+            env: HashMap::new(),
+            secrets,
+            variables: toml::Value::Table(toml::map::Map::new()),
+        }
+    }
+
+    #[test]
+    fn test_templated_dotfile_renders_values() {
+        let mut dotfiles = HashMap::new();
+        let mut entry = toml::map::Map::new();
+        entry.insert("_template".to_string(), TomlValue::Boolean(true));
+        entry.insert(
+            "oauth_token".to_string(),
+            TomlValue::String("{{ secret.GITHUB_TOKEN }}".to_string()),
+        );
+        entry.insert(
+            "machine".to_string(),
+            TomlValue::String("{{ hostname }}".to_string()),
+        );
+        dotfiles.insert(
+            "~/.config/example.json".to_string(),
+            TomlValue::Table(entry),
+        );
+
+        let manager =
+            DotfileManager::from_config_with_context(&dotfiles, Some(&test_ctx())).unwrap();
+        let patch = &manager.list()[0];
+        let settings = patch.settings.as_ref().unwrap().as_table().unwrap();
+
+        assert_eq!(settings["oauth_token"].as_str(), Some("ghp_xxx"));
+        assert_eq!(settings["machine"].as_str(), Some("my-laptop"));
+    }
+
+    #[test]
+    fn test_untemplated_dotfile_leaves_braces_literal() {
+        let mut dotfiles = HashMap::new();
+        let mut entry = toml::map::Map::new();
+        entry.insert(
+            "literal".to_string(),
+            TomlValue::String("{{ hostname }}".to_string()),
+        );
+        dotfiles.insert("~/.config/plain.json".to_string(), TomlValue::Table(entry));
+
+        let manager = DotfileManager::from_config(&dotfiles).unwrap();
+        let patch = &manager.list()[0];
+        let settings = patch.settings.as_ref().unwrap().as_table().unwrap();
+
+        assert_eq!(settings["literal"].as_str(), Some("{{ hostname }}"));
+    }
+
+    #[test]
+    fn test_templated_content_replace_mode() {
+        let mut dotfiles = HashMap::new();
+        let mut entry = toml::map::Map::new();
+        entry.insert("_template".to_string(), TomlValue::Boolean(true));
+        entry.insert(
+            "_content".to_string(),
+            TomlValue::String("Host {{ hostname }}\n".to_string()),
+        );
+        dotfiles.insert("~/.ssh/config".to_string(), TomlValue::Table(entry));
+
+        let manager =
+            DotfileManager::from_config_with_context(&dotfiles, Some(&test_ctx())).unwrap();
+        let patch = &manager.list()[0];
+
+        assert_eq!(patch.content.as_deref(), Some("Host my-laptop\n"));
+    }
+
+    #[test]
+    fn test_templated_dotfile_missing_secret_errors() {
+        let mut dotfiles = HashMap::new();
+        let mut entry = toml::map::Map::new();
+        entry.insert("_template".to_string(), TomlValue::Boolean(true));
+        entry.insert(
+            "token".to_string(),
+            TomlValue::String("{{ secret.MISSING }}".to_string()),
+        );
+        dotfiles.insert(
+            "~/.config/example.json".to_string(),
+            TomlValue::Table(entry),
+        );
+
+        let result = DotfileManager::from_config_with_context(&dotfiles, Some(&test_ctx()));
+        let err = result.err().expect("expected missing-secret error");
+        assert!(err.to_string().contains("MISSING"));
     }
 }

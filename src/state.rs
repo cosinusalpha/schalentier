@@ -8,6 +8,8 @@ const STATE_FILE_NAME: &str = "local_state.json";
 const CONFIG_FILE_NAME: &str = "schalentier.toml";
 const DATA_DIR_NAME: &str = ".schalentier";
 const CONFIG_DIR_NAME: &str = ".config/schalentier";
+const PROJECT_DIR_NAME: &str = ".schalentier";
+const PROJECT_CONFIG_FILE_NAME: &str = "config.toml";
 
 /// Get the default data directory (~/.schalentier)
 pub fn default_data_dir() -> Result<PathBuf> {
@@ -73,6 +75,43 @@ pub fn config_file_path() -> PathBuf {
     local_config
 }
 
+/// Find a project-local config by walking up from `start` looking for
+/// `.schalentier/config.toml`. Stops at the user's home directory or the
+/// filesystem root, whichever comes first.
+pub fn find_project_config_from(start: &Path) -> Option<PathBuf> {
+    let home = dirs::home_dir();
+    let mut dir = start.to_path_buf();
+
+    loop {
+        let candidate = dir.join(PROJECT_DIR_NAME).join(PROJECT_CONFIG_FILE_NAME);
+        if candidate.exists() {
+            return Some(candidate);
+        }
+
+        if home.as_deref() == Some(dir.as_path()) {
+            return None;
+        }
+
+        match dir.parent() {
+            Some(parent) => dir = parent.to_path_buf(),
+            None => return None,
+        }
+    }
+}
+
+/// Find a project-local config by walking up from the current working directory.
+pub fn find_project_config() -> Option<PathBuf> {
+    std::env::current_dir()
+        .ok()
+        .and_then(|cwd| find_project_config_from(&cwd))
+}
+
+/// Directory containing the discovered project config, if any (i.e. the
+/// `.schalentier/` directory itself — used to locate project-local secrets.enc).
+pub fn project_dir_from(project_config_path: &Path) -> Option<PathBuf> {
+    project_config_path.parent().map(Path::to_path_buf)
+}
+
 /// Ensure the data directory exists with proper permissions
 pub fn ensure_data_dir(data_dir: &Path) -> Result<()> {
     if !data_dir.exists() {
@@ -80,32 +119,20 @@ pub fn ensure_data_dir(data_dir: &Path) -> Result<()> {
         std::fs::create_dir_all(data_dir)
             .with_context(|| format!("Failed to create data directory: {}", data_dir.display()))?;
 
-        // Set directory permissions on Unix
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            let perms = std::fs::Permissions::from_mode(0o700);
-            std::fs::set_permissions(data_dir, perms)
-                .with_context(|| "Failed to set directory permissions")?;
-        }
+        use std::os::unix::fs::PermissionsExt;
+        let perms = std::fs::Permissions::from_mode(0o700);
+        std::fs::set_permissions(data_dir, perms)
+            .with_context(|| "Failed to set directory permissions")?;
     }
     Ok(())
 }
 
-/// Set restrictive permissions on a file (Unix only)
-#[cfg(unix)]
+/// Set restrictive permissions on a file
 fn set_file_permissions(path: &Path) -> Result<()> {
     use std::os::unix::fs::PermissionsExt;
     let perms = std::fs::Permissions::from_mode(0o600);
     std::fs::set_permissions(path, perms)
         .with_context(|| format!("Failed to set permissions on {}", path.display()))?;
-    Ok(())
-}
-
-#[cfg(not(unix))]
-fn set_file_permissions(_path: &Path) -> Result<()> {
-    // On Windows, file permissions work differently (ACLs)
-    // For now, we skip this - could use windows-acl crate for proper support
     Ok(())
 }
 
@@ -174,6 +201,21 @@ impl SchalentierConfig {
         Self::load_from(&config_path)
     }
 
+    /// Load the global configuration, then merge a project-local
+    /// `.schalentier/config.toml` on top if one is found by walking up from the
+    /// current directory (project values win, per [`Self::merge_settings`]).
+    pub fn load_with_project() -> Result<Self> {
+        let mut config = Self::load()?;
+
+        if let Some(project_path) = find_project_config() {
+            debug!("Found project config: {}", project_path.display());
+            let project_config = Self::load_from(&project_path)?;
+            config.merge_settings(&project_config);
+        }
+
+        Ok(config)
+    }
+
     /// Load configuration from a specific path
     pub fn load_from(path: &Path) -> Result<Self> {
         if !path.exists() {
@@ -234,10 +276,18 @@ impl SchalentierConfig {
             self.tools.insert(name.clone(), entry.clone());
         }
 
+        // Merge dotfiles (other's entries override on path conflict)
+        for (path, entry) in &other.dotfiles {
+            self.dotfiles.insert(path.clone(), entry.clone());
+        }
+
         // Sync config: use other's if remote is specified
         if other.sync.remote.is_some() {
             self.sync = other.sync.clone();
         }
+
+        // Variables: deep merge (other's values override on key conflict)
+        crate::dotfiles::deep_merge_toml(&mut self.variables, &other.variables);
     }
 }
 
@@ -360,7 +410,6 @@ mod tests {
         assert!(base.tools.contains_key("custom-tool"));
     }
 
-    #[cfg(unix)]
     #[test]
     fn test_file_permissions() {
         use std::os::unix::fs::PermissionsExt;
@@ -375,5 +424,78 @@ mod tests {
         let metadata = std::fs::metadata(&state_path).unwrap();
         let mode = metadata.permissions().mode() & 0o777;
         assert_eq!(mode, 0o600, "State file should have 0600 permissions");
+    }
+
+    #[test]
+    fn test_find_project_config_in_current_dir() {
+        let temp_dir = TempDir::new().unwrap();
+        let project_dir = temp_dir.path().join(".schalentier");
+        std::fs::create_dir_all(&project_dir).unwrap();
+        std::fs::write(project_dir.join("config.toml"), "").unwrap();
+
+        let found = find_project_config_from(temp_dir.path()).unwrap();
+        assert_eq!(found, project_dir.join("config.toml"));
+    }
+
+    #[test]
+    fn test_find_project_config_walks_up_from_subdirectory() {
+        let temp_dir = TempDir::new().unwrap();
+        let project_dir = temp_dir.path().join(".schalentier");
+        std::fs::create_dir_all(&project_dir).unwrap();
+        std::fs::write(project_dir.join("config.toml"), "").unwrap();
+
+        let nested = temp_dir.path().join("src").join("nested");
+        std::fs::create_dir_all(&nested).unwrap();
+
+        let found = find_project_config_from(&nested).unwrap();
+        assert_eq!(found, project_dir.join("config.toml"));
+    }
+
+    #[test]
+    fn test_find_project_config_none_when_absent() {
+        let temp_dir = TempDir::new().unwrap();
+        let nested = temp_dir.path().join("no").join("project").join("here");
+        std::fs::create_dir_all(&nested).unwrap();
+
+        assert!(find_project_config_from(&nested).is_none());
+    }
+
+    #[test]
+    fn test_project_dir_from() {
+        let path = Path::new("/home/user/project/.schalentier/config.toml");
+        assert_eq!(
+            project_dir_from(path),
+            Some(PathBuf::from("/home/user/project/.schalentier"))
+        );
+    }
+
+    #[test]
+    fn test_merge_settings_merges_dotfiles_and_variables() {
+        let mut base = SchalentierConfig::default();
+        base.dotfiles.insert(
+            "~/.gitconfig".to_string(),
+            toml::Value::Table(toml::map::Map::new()),
+        );
+
+        let mut override_config = SchalentierConfig::default();
+        override_config.dotfiles.insert(
+            "~/.npmrc".to_string(),
+            toml::Value::Table(toml::map::Map::new()),
+        );
+        let mut vars = toml::map::Map::new();
+        vars.insert(
+            "project_name".to_string(),
+            toml::Value::String("my-app".to_string()),
+        );
+        override_config.variables = toml::Value::Table(vars);
+
+        base.merge_settings(&override_config);
+
+        assert!(base.dotfiles.contains_key("~/.gitconfig"));
+        assert!(base.dotfiles.contains_key("~/.npmrc"));
+        assert_eq!(
+            base.variables.get("project_name").and_then(|v| v.as_str()),
+            Some("my-app")
+        );
     }
 }

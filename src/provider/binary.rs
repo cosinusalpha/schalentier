@@ -150,13 +150,9 @@ impl BinaryProvider {
         let os_keywords = match self.os {
             Os::Linux => vec!["linux", "Linux"],
             Os::MacOS => vec!["darwin", "macos", "osx", "apple", "Darwin", "MacOS"],
-            Os::Windows => vec!["windows", "win", "Windows"],
         };
 
-        let extension = match self.os {
-            Os::Windows => vec![".zip", ".exe", ".msi"],
-            _ => vec![".tar.gz", ".tgz", ".zip"],
-        };
+        let extension = vec![".tar.gz", ".tgz", ".zip"];
 
         // Score each asset
         let mut scored_assets: Vec<(&GitHubAsset, u32)> = assets
@@ -409,12 +405,7 @@ impl Installer for BinaryProvider {
                 })?;
 
             // Copy to bin directory
-            let dest_name = if self.os == Os::Windows && !binary_name.ends_with(".exe") {
-                format!("{}.exe", binary_name)
-            } else {
-                binary_name.clone()
-            };
-            let dest_path = bin_dir.join(&dest_name);
+            let dest_path = bin_dir.join(&binary_name);
 
             info!(
                 "Installing {} to {}",
@@ -423,8 +414,7 @@ impl Installer for BinaryProvider {
             );
             std::fs::copy(&binary_path, &dest_path)?;
 
-            // Set executable permission on Unix
-            #[cfg(unix)]
+            // Set executable permission
             {
                 use std::os::unix::fs::PermissionsExt;
                 std::fs::set_permissions(&dest_path, std::fs::Permissions::from_mode(0o755))?;
@@ -435,17 +425,8 @@ impl Installer for BinaryProvider {
 
             dest_path
         } else {
-            // Direct binary download (e.g., .exe file)
-            let dest_name = if self.os == Os::Windows {
-                if asset.name.ends_with(".exe") {
-                    binary_name.clone()
-                } else {
-                    format!("{}.exe", binary_name)
-                }
-            } else {
-                binary_name.clone()
-            };
-            let dest_path = bin_dir.join(&dest_name);
+            // Direct binary download
+            let dest_path = bin_dir.join(&binary_name);
 
             info!(
                 "Installing {} to {}",
@@ -454,8 +435,7 @@ impl Installer for BinaryProvider {
             );
             std::fs::copy(&download_path, &dest_path)?;
 
-            // Set executable permission on Unix
-            #[cfg(unix)]
+            // Set executable permission
             {
                 use std::os::unix::fs::PermissionsExt;
                 std::fs::set_permissions(&dest_path, std::fs::Permissions::from_mode(0o755))?;
@@ -489,14 +469,10 @@ impl Installer for BinaryProvider {
         });
 
         let binary_path = bin_dir.join(name);
-        let binary_path_exe = bin_dir.join(format!("{}.exe", name));
 
         if binary_path.exists() {
             std::fs::remove_file(&binary_path)?;
             info!("Removed {}", binary_path.display());
-        } else if binary_path_exe.exists() {
-            std::fs::remove_file(&binary_path_exe)?;
-            info!("Removed {}", binary_path_exe.display());
         } else {
             warn!("Binary {} not found in {}", name, bin_dir.display());
         }
@@ -512,22 +488,66 @@ impl Installer for BinaryProvider {
                 .join("bin")
         });
 
+        Ok(bin_dir.join(name).exists())
+    }
+
+    async fn installed_version(&self, name: &str) -> Result<Option<String>> {
+        // Binaries carry no manifest, so probe the installed file directly:
+        // run `<bin> --version` and pull the first version-looking token out.
+        let bin_dir = self.bin_dir.clone().unwrap_or_else(|| {
+            dirs::home_dir()
+                .unwrap_or_default()
+                .join(".schalentier")
+                .join("bin")
+        });
+
         let binary_path = bin_dir.join(name);
-        let binary_path_exe = bin_dir.join(format!("{}.exe", name));
+        if !binary_path.exists() {
+            return Ok(None);
+        }
 
-        Ok(binary_path.exists() || binary_path_exe.exists())
-    }
+        let output = std::process::Command::new(&binary_path)
+            .arg("--version")
+            .output();
 
-    async fn installed_version(&self, _name: &str) -> Result<Option<String>> {
-        // Would need to run the binary with --version and parse output
-        // For now, return None
-        Ok(None)
+        match output {
+            Ok(o) if o.status.success() => {
+                Ok(parse_version_from_output(&String::from_utf8_lossy(&o.stdout)))
+            }
+            _ => Ok(None),
+        }
     }
+}
+
+/// Extract the first version-looking token from `--version` output.
+///
+/// Handles common shapes like `tool 1.2.3`, `tool version 1.2.3`, and `v1.2.3` by
+/// taking the first whitespace-separated token that starts with a digit (after an
+/// optional leading `v`), trimming a trailing comma.
+fn parse_version_from_output(stdout: &str) -> Option<String> {
+    stdout
+        .split_whitespace()
+        .map(|tok| tok.trim_end_matches(','))
+        .find(|tok| {
+            let t = tok.strip_prefix('v').unwrap_or(tok);
+            t.chars().next().is_some_and(|c| c.is_ascii_digit())
+        })
+        .map(|tok| tok.to_string())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_parse_version_from_output() {
+        assert_eq!(parse_version_from_output("ripgrep 14.1.1"), Some("14.1.1".to_string()));
+        assert_eq!(parse_version_from_output("tool version 1.2.3"), Some("1.2.3".to_string()));
+        assert_eq!(parse_version_from_output("fd v10.0.0"), Some("v10.0.0".to_string()));
+        assert_eq!(parse_version_from_output("bat 0.24.0,"), Some("0.24.0".to_string()));
+        assert_eq!(parse_version_from_output("no version here"), None);
+        assert_eq!(parse_version_from_output(""), None);
+    }
 
     #[test]
     fn test_find_best_asset_linux_x64() {
@@ -588,30 +608,6 @@ mod tests {
         assert!(best.is_some());
         assert!(best.unwrap().name.contains("darwin"));
         assert!(best.unwrap().name.contains("arm64"));
-    }
-
-    #[test]
-    fn test_find_best_asset_windows() {
-        let provider = BinaryProvider::new(Arch::X86_64, Os::Windows);
-
-        let assets = vec![
-            GitHubAsset {
-                name: "tool-linux-x86_64.tar.gz".to_string(),
-                browser_download_url: "https://example.com/a".to_string(),
-                size: 1000,
-                download_count: 100,
-            },
-            GitHubAsset {
-                name: "tool-windows-x64.zip".to_string(),
-                browser_download_url: "https://example.com/b".to_string(),
-                size: 1000,
-                download_count: 50,
-            },
-        ];
-
-        let best = provider.find_best_asset(&assets);
-        assert!(best.is_some());
-        assert!(best.unwrap().name.contains("windows"));
     }
 
     #[test]

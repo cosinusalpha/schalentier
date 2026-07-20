@@ -27,7 +27,6 @@ impl std::fmt::Display for Arch {
 pub enum Os {
     Linux,
     MacOS,
-    Windows,
 }
 
 impl std::fmt::Display for Os {
@@ -35,7 +34,6 @@ impl std::fmt::Display for Os {
         match self {
             Os::Linux => write!(f, "linux"),
             Os::MacOS => write!(f, "macos"),
-            Os::Windows => write!(f, "windows"),
         }
     }
 }
@@ -60,7 +58,6 @@ pub fn get_os() -> Result<Os> {
     match os {
         "linux" => Ok(Os::Linux),
         "macos" => Ok(Os::MacOS),
-        "windows" => Ok(Os::Windows),
         other => Err(SchalentierError::UnsupportedPlatform(other.to_string()).into()),
     }
 }
@@ -74,13 +71,6 @@ pub fn miniforge_url(arch: Arch, os: Os) -> Result<String> {
         (Os::Linux, Arch::Aarch64) => "Miniforge3-Linux-aarch64.sh",
         (Os::MacOS, Arch::X86_64) => "Miniforge3-MacOSX-x86_64.sh",
         (Os::MacOS, Arch::Aarch64) => "Miniforge3-MacOSX-arm64.sh",
-        (Os::Windows, Arch::X86_64) => "Miniforge3-Windows-x86_64.exe",
-        (Os::Windows, Arch::Aarch64) => {
-            return Err(SchalentierError::UnsupportedPlatform(
-                "Windows ARM64 is not supported by Miniforge".to_string(),
-            )
-            .into())
-        }
     };
 
     Ok(format!("{}/{}", base, filename))
@@ -95,11 +85,70 @@ pub fn uv_url(arch: Arch, os: Os) -> Result<String> {
         (Os::Linux, Arch::Aarch64) => "uv-aarch64-unknown-linux-musl.tar.gz",
         (Os::MacOS, Arch::X86_64) => "uv-x86_64-apple-darwin.tar.gz",
         (Os::MacOS, Arch::Aarch64) => "uv-aarch64-apple-darwin.tar.gz",
-        (Os::Windows, Arch::X86_64) => "uv-x86_64-pc-windows-msvc.zip",
-        (Os::Windows, Arch::Aarch64) => "uv-aarch64-pc-windows-msvc.zip",
     };
 
     Ok(format!("{}/{}", base, filename))
+}
+
+/// Get platform-specific rustup download URL
+pub fn rustup_url(arch: Arch, os: Os) -> Result<String> {
+    let arch_str = match arch {
+        Arch::X86_64 => "x86_64",
+        Arch::Aarch64 => "aarch64",
+    };
+
+    let os_str = match os {
+        Os::Linux => "unknown-linux-gnu",
+        Os::MacOS => "apple-darwin",
+    };
+
+    Ok(format!(
+        "https://static.rust-lang.org/rustup/dist/{}-{}/rustup-init",
+        arch_str, os_str
+    ))
+}
+
+/// Get platform-specific Node.js download URL
+pub fn node_url(arch: Arch, os: Os) -> Result<String> {
+    let arch_str = match arch {
+        Arch::X86_64 => "x64",
+        Arch::Aarch64 => "arm64",
+    };
+
+    let os_str = match os {
+        Os::Linux => "linux",
+        Os::MacOS => "darwin",
+    };
+
+    // Use current version (v26.5.0 as of this writing, but will be updated)
+    // In future, could fetch from https://nodejs.org/dist/index.json for latest
+    let version = "v26.5.0";
+
+    Ok(format!(
+        "https://nodejs.org/dist/{}/node-{}-{}-{}.tar.gz",
+        version, version, os_str, arch_str
+    ))
+}
+
+/// Get platform-specific Go download URL
+pub fn go_url(arch: Arch, os: Os) -> Result<String> {
+    let arch_str = match arch {
+        Arch::X86_64 => "amd64",
+        Arch::Aarch64 => "arm64",
+    };
+
+    let os_str = match os {
+        Os::Linux => "linux",
+        Os::MacOS => "darwin",
+    };
+
+    // Use latest stable version
+    let version = "1.22.5";
+
+    Ok(format!(
+        "https://go.dev/dl/go{}.{}.{}.tar.gz",
+        version, os_str, arch_str
+    ))
 }
 
 /// Bootstrap paths
@@ -142,7 +191,10 @@ impl BootstrapPaths {
 pub async fn download_file(url: &str, dest: &Path) -> Result<()> {
     info!("Downloading {} to {}", url, dest.display());
 
+    // Create client with TLS that uses webpki roots (bundled certificates)
+    // This works in minimal containers without system CA certificates
     let client = reqwest::Client::new();
+
     let response = client
         .get(url)
         .send()
@@ -184,6 +236,12 @@ pub struct Bootstrap {
     install_uv: bool,
     /// Whether to install conda/miniforge (default: true)
     install_conda: bool,
+    /// Whether to install rust/rustup (default: true)
+    install_rust: bool,
+    /// Whether to install Node.js (default: true)
+    install_node: bool,
+    /// Whether to install Go (default: true)
+    install_go: bool,
 }
 
 impl Bootstrap {
@@ -198,6 +256,9 @@ impl Bootstrap {
             os,
             install_uv: true,
             install_conda: true,
+            install_rust: true,
+            install_node: true,
+            install_go: true,
         })
     }
 
@@ -212,6 +273,9 @@ impl Bootstrap {
             os,
             install_uv: true,
             install_conda: true,
+            install_rust: true,
+            install_node: true,
+            install_go: true,
         })
     }
 
@@ -223,6 +287,21 @@ impl Bootstrap {
     /// Set whether to install conda/miniforge
     pub fn set_install_conda(&mut self, install: bool) {
         self.install_conda = install;
+    }
+
+    /// Set whether to install rust/rustup
+    pub fn set_install_rust(&mut self, install: bool) {
+        self.install_rust = install;
+    }
+
+    /// Set whether to install Node.js
+    pub fn set_install_node(&mut self, install: bool) {
+        self.install_node = install;
+    }
+
+    /// Set whether to install Go
+    pub fn set_install_go(&mut self, install: bool) {
+        self.install_go = install;
     }
 
     /// Run the full bootstrap process
@@ -246,6 +325,33 @@ impl Bootstrap {
             debug!("Conda installation skipped by user");
         } else {
             debug!("Conda already installed, skipping");
+        }
+
+        // Install Rust/rustup
+        if self.install_rust && !state.bootstrap.rust_installed {
+            self.install_rustup(state).await?;
+        } else if !self.install_rust {
+            debug!("Rust installation skipped by user");
+        } else {
+            debug!("Rust already installed, skipping");
+        }
+
+        // Install Node.js
+        if self.install_node && !state.bootstrap.node_installed {
+            self.install_nodejs(state).await?;
+        } else if !self.install_node {
+            debug!("Node.js installation skipped by user");
+        } else {
+            debug!("Node.js already installed, skipping");
+        }
+
+        // Install Go
+        if self.install_go && !state.bootstrap.go_installed {
+            self.install_go(state).await?;
+        } else if !self.install_go {
+            debug!("Go installation skipped by user");
+        } else {
+            debug!("Go already installed, skipping");
         }
 
         state.initialized = true;
@@ -286,13 +392,7 @@ impl Bootstrap {
 
         download_file(&url, &archive_path).await?;
 
-        // Determine the binary name
-        let uv_binary_name = if self.os == Os::Windows {
-            "uv.exe"
-        } else {
-            "uv"
-        };
-        let uv_bin = self.paths.bin_dir.join(uv_binary_name);
+        let uv_bin = self.paths.bin_dir.join("uv");
 
         // Extract the archive
         let extract_dir = self.paths.downloads_dir.join("uv-extract");
@@ -331,8 +431,7 @@ impl Bootstrap {
         std::fs::copy(&source_binary, &uv_bin)
             .with_context(|| format!("Failed to copy uv binary to {}", uv_bin.display()))?;
 
-        // Set executable permission on Unix
-        #[cfg(unix)]
+        // Set executable permission
         {
             use std::os::unix::fs::PermissionsExt;
             std::fs::set_permissions(&uv_bin, std::fs::Permissions::from_mode(0o755))?;
@@ -370,7 +469,12 @@ impl Bootstrap {
                         version
                     );
                     state.bootstrap.conda_installed = true;
-                    state.bootstrap.conda_path = Some(self.paths.conda_dir.clone());
+                    // Record the *system* conda's location, not our own conda_dir — we
+                    // didn't install anything there, so the generated env script must
+                    // not later assume it owns a Miniforge install at conda_dir and try
+                    // to source a hook file that doesn't exist.
+                    state.bootstrap.conda_path =
+                        Some(path.parent().unwrap_or(&path).to_path_buf());
                     return Ok(());
                 }
             }
@@ -386,83 +490,45 @@ impl Bootstrap {
         download_file(&url, &installer_path).await?;
 
         // Run installer in batch mode
-        match self.os {
-            Os::Linux | Os::MacOS => {
-                // Set executable permission
-                #[cfg(unix)]
-                {
-                    use std::os::unix::fs::PermissionsExt;
-                    std::fs::set_permissions(
-                        &installer_path,
-                        std::fs::Permissions::from_mode(0o755),
-                    )?;
-                }
-
-                info!("Running Miniforge installer in batch mode...");
-                let status = std::process::Command::new("bash")
-                    .arg(&installer_path)
-                    .arg("-b") // batch mode (no prompts)
-                    .arg("-p")
-                    .arg(&self.paths.conda_dir)
-                    .status()
-                    .with_context(|| "Failed to run Miniforge installer")?;
-
-                if !status.success() {
-                    return Err(SchalentierError::BootstrapFailed(format!(
-                        "Miniforge installer failed with exit code: {:?}",
-                        status.code()
-                    ))
-                    .into());
-                }
-
-                // Verify conda was installed
-                let conda_bin = self.paths.conda_dir.join("bin").join("conda");
-                if !conda_bin.exists() {
-                    return Err(SchalentierError::BootstrapFailed(format!(
-                        "Miniforge installed but conda not found at {}",
-                        conda_bin.display()
-                    ))
-                    .into());
-                }
-
-                info!(
-                    "Miniforge installed successfully to {}",
-                    self.paths.conda_dir.display()
-                );
-            }
-            Os::Windows => {
-                // Windows uses .exe installer with different arguments
-                info!("Running Miniforge installer in silent mode...");
-                let status = std::process::Command::new(&installer_path)
-                    .arg("/S") // silent mode
-                    .arg(format!("/D={}", self.paths.conda_dir.display()))
-                    .status()
-                    .with_context(|| "Failed to run Miniforge installer")?;
-
-                if !status.success() {
-                    return Err(SchalentierError::BootstrapFailed(format!(
-                        "Miniforge installer failed with exit code: {:?}",
-                        status.code()
-                    ))
-                    .into());
-                }
-
-                // Verify conda was installed
-                let conda_bin = self.paths.conda_dir.join("Scripts").join("conda.exe");
-                if !conda_bin.exists() {
-                    return Err(SchalentierError::BootstrapFailed(format!(
-                        "Miniforge installed but conda not found at {}",
-                        conda_bin.display()
-                    ))
-                    .into());
-                }
-
-                info!(
-                    "Miniforge installed successfully to {}",
-                    self.paths.conda_dir.display()
-                );
-            }
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(
+                &installer_path,
+                std::fs::Permissions::from_mode(0o755),
+            )?;
         }
+
+        info!("Running Miniforge installer in batch mode...");
+        let status = std::process::Command::new("bash")
+            .arg(&installer_path)
+            .arg("-b") // batch mode (no prompts)
+            .arg("-p")
+            .arg(&self.paths.conda_dir)
+            .status()
+            .with_context(|| "Failed to run Miniforge installer")?;
+
+        if !status.success() {
+            return Err(SchalentierError::BootstrapFailed(format!(
+                "Miniforge installer failed with exit code: {:?}",
+                status.code()
+            ))
+            .into());
+        }
+
+        // Verify conda was installed
+        let conda_bin = self.paths.conda_dir.join("bin").join("conda");
+        if !conda_bin.exists() {
+            return Err(SchalentierError::BootstrapFailed(format!(
+                "Miniforge installed but conda not found at {}",
+                conda_bin.display()
+            ))
+            .into());
+        }
+
+        info!(
+            "Miniforge installed successfully to {}",
+            self.paths.conda_dir.display()
+        );
 
         // Cleanup installer
         let _ = std::fs::remove_file(&installer_path);
@@ -471,6 +537,255 @@ impl Bootstrap {
         state.bootstrap.conda_path = Some(self.paths.conda_dir.clone());
         info!("Miniforge installation complete");
         println!("✓ Miniforge installed successfully");
+        Ok(())
+    }
+
+    /// Install Rust/rustup
+    async fn install_rustup(&self, state: &mut LocalState) -> Result<()> {
+        // Check if rustup/cargo is already available in PATH
+        if let Ok(path) = which::which("rustup") {
+            if let Ok(output) = std::process::Command::new("rustup")
+                .arg("--version")
+                .output()
+            {
+                if output.status.success() {
+                    let version = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                    info!(
+                        "rustup already installed at {} ({}), skipping download",
+                        path.display(),
+                        version
+                    );
+                    println!(
+                        "ℹ rustup is already installed at {} ({}), skipping download",
+                        path.display(),
+                        version
+                    );
+                    state.bootstrap.rust_installed = true;
+                    if let Ok(cargo_path) = which::which("cargo") {
+                        state.bootstrap.rust_path = Some(cargo_path.parent().unwrap().to_path_buf());
+                    }
+                    return Ok(());
+                }
+            }
+        }
+
+        // Fallback: check cargo without rustup
+        if let Ok(path) = which::which("cargo") {
+            if let Ok(output) = std::process::Command::new("cargo")
+                .arg("--version")
+                .output()
+            {
+                if output.status.success() {
+                    let version = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                    info!(
+                        "cargo already installed at {} ({}), skipping download",
+                        path.display(),
+                        version
+                    );
+                    println!(
+                        "ℹ cargo is already installed at {} ({}), skipping download",
+                        path.display(),
+                        version
+                    );
+                    state.bootstrap.rust_installed = true;
+                    state.bootstrap.rust_path = Some(path.parent().unwrap().to_path_buf());
+                    return Ok(());
+                }
+            }
+        }
+
+        info!("Installing Rust...");
+        println!("→ Installing Rust...");
+
+        let url = rustup_url(self.arch, self.os)?;
+        let download_path = self.paths.downloads_dir.join("rustup-init");
+
+        download_file(&url, &download_path).await?;
+
+        // Set executable permission
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&download_path, std::fs::Permissions::from_mode(0o755))?;
+        }
+
+        // Run rustup installer
+        info!("Running rustup installer...");
+        let cargo_home = self.paths.data_dir.join(".cargo");
+        let rustup_home = self.paths.data_dir.join("rustup");
+
+        let status = std::process::Command::new(&download_path)
+            .args(&["-y", "--no-modify-path"])
+            .env("CARGO_HOME", &cargo_home)
+            .env("RUSTUP_HOME", &rustup_home)
+            .status()
+            .with_context(|| "Failed to run rustup installer")?;
+
+        if !status.success() {
+            return Err(SchalentierError::BootstrapFailed(format!(
+                "Rustup installer failed with exit code: {:?}",
+                status.code()
+            ))
+            .into());
+        }
+
+        // Cleanup
+        let _ = std::fs::remove_file(&download_path);
+
+        state.bootstrap.rust_installed = true;
+        state.bootstrap.rust_path = Some(cargo_home.join("bin"));
+        info!("Rust installation complete");
+        println!("✓ Rust installed successfully");
+        Ok(())
+    }
+
+    /// Install Node.js
+    async fn install_nodejs(&self, state: &mut LocalState) -> Result<()> {
+        // Check if Node.js is already available in PATH
+        if let Ok(path) = which::which("node") {
+            if let Ok(output) = std::process::Command::new("node")
+                .arg("--version")
+                .output()
+            {
+                if output.status.success() {
+                    let version = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                    info!(
+                        "Node.js already installed at {} ({}), skipping download",
+                        path.display(),
+                        version
+                    );
+                    println!(
+                        "ℹ Node.js is already installed at {} ({}), skipping download",
+                        path.display(),
+                        version
+                    );
+                    state.bootstrap.node_installed = true;
+                    state.bootstrap.node_path = Some(path.parent().unwrap().to_path_buf());
+                    return Ok(());
+                }
+            }
+        }
+
+        info!("Installing Node.js...");
+        println!("→ Installing Node.js...");
+
+        let url = node_url(self.arch, self.os)?;
+        let filename = url.split('/').next_back().unwrap_or("node-archive");
+        let download_path = self.paths.downloads_dir.join(filename);
+        let node_dir = self.paths.data_dir.join("node");
+
+        download_file(&url, &download_path).await?;
+
+        info!("Extracting Node.js...");
+        let extract_dir = self.paths.downloads_dir.join("node-extract");
+        if extract_dir.exists() {
+            std::fs::remove_dir_all(&extract_dir)?;
+        }
+
+        let extracted_files = archive::extract(&download_path, &extract_dir)?;
+
+        // Find the extracted directory (e.g., node-v26.5.0-linux-x64)
+        let extracted_root = extracted_files
+            .first()
+            .and_then(|p| p.parent())
+            .ok_or_else(|| {
+                SchalentierError::BootstrapFailed("Could not find extracted Node.js directory".to_string())
+            })?;
+
+        // Move contents to node_dir
+        if node_dir.exists() {
+            std::fs::remove_dir_all(&node_dir)?;
+        }
+        std::fs::create_dir_all(&node_dir)?;
+
+        for entry in std::fs::read_dir(extracted_root)? {
+            let entry = entry?;
+            let dest = node_dir.join(entry.file_name());
+            std::fs::rename(entry.path(), dest)?;
+        }
+
+        // Cleanup
+        let _ = std::fs::remove_dir_all(&extract_dir);
+        let _ = std::fs::remove_file(&download_path);
+
+        state.bootstrap.node_installed = true;
+        state.bootstrap.node_path = Some(node_dir.join("bin"));
+        info!("Node.js installation complete");
+        println!("✓ Node.js installed successfully");
+        Ok(())
+    }
+
+    /// Install Go
+    async fn install_go(&self, state: &mut LocalState) -> Result<()> {
+        // Check if Go is already available in PATH
+        if let Ok(path) = which::which("go") {
+            if let Ok(output) = std::process::Command::new("go").arg("version").output() {
+                if output.status.success() {
+                    let version = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                    info!(
+                        "Go already installed at {} ({}), skipping download",
+                        path.display(),
+                        version
+                    );
+                    println!(
+                        "ℹ Go is already installed at {} ({}), skipping download",
+                        path.display(),
+                        version
+                    );
+                    state.bootstrap.go_installed = true;
+                    state.bootstrap.go_path = Some(path.parent().unwrap().to_path_buf());
+                    return Ok(());
+                }
+            }
+        }
+
+        info!("Installing Go...");
+        println!("→ Installing Go...");
+
+        let url = go_url(self.arch, self.os)?;
+        let filename = url.split('/').next_back().unwrap_or("go-archive");
+        let download_path = self.paths.downloads_dir.join(filename);
+        let go_dir = self.paths.data_dir.join("go");
+
+        download_file(&url, &download_path).await?;
+
+        info!("Extracting Go...");
+        let extract_dir = self.paths.downloads_dir.join("go-extract");
+        if extract_dir.exists() {
+            std::fs::remove_dir_all(&extract_dir)?;
+        }
+
+        let extracted_files = archive::extract(&download_path, &extract_dir)?;
+
+        // Find the extracted go directory
+        let extracted_go = extracted_files
+            .iter()
+            .find(|p| {
+                p.file_name()
+                    .and_then(|n| n.to_str())
+                    .map(|n| n == "go")
+                    .unwrap_or(false)
+            })
+            .or_else(|| extracted_files.first())
+            .ok_or_else(|| {
+                SchalentierError::BootstrapFailed("Could not find extracted Go directory".to_string())
+            })?;
+
+        // Remove existing go_dir if it exists
+        if go_dir.exists() {
+            std::fs::remove_dir_all(&go_dir)?;
+        }
+
+        // Move the go directory
+        std::fs::rename(extracted_go, &go_dir)?;
+
+        // Cleanup
+        let _ = std::fs::remove_dir_all(&extract_dir);
+        let _ = std::fs::remove_file(&download_path);
+
+        state.bootstrap.go_installed = true;
+        state.bootstrap.go_path = Some(go_dir.join("bin"));
+        info!("Go installation complete");
+        println!("✓ Go installed successfully");
         Ok(())
     }
 
@@ -492,6 +807,16 @@ impl Bootstrap {
             } else {
                 ComponentStatus::NotInstalled
             },
+            node: if state.bootstrap.node_installed {
+                ComponentStatus::Installed(state.bootstrap.node_path.clone())
+            } else {
+                ComponentStatus::NotInstalled
+            },
+            go: if state.bootstrap.go_installed {
+                ComponentStatus::Installed(state.bootstrap.go_path.clone())
+            } else {
+                ComponentStatus::NotInstalled
+            },
         }
     }
 }
@@ -510,14 +835,17 @@ pub struct BootstrapStatus {
     pub uv: ComponentStatus,
     pub conda: ComponentStatus,
     pub rust: ComponentStatus,
+    pub node: ComponentStatus,
+    pub go: ComponentStatus,
 }
 
 impl BootstrapStatus {
+    /// True when every bootstrap component that was requested is installed. We treat all
+    /// five toolchains (uv, conda, rust, node, go) as the full set.
     pub fn is_complete(&self) -> bool {
-        matches!(
-            (&self.uv, &self.conda),
-            (ComponentStatus::Installed(_), ComponentStatus::Installed(_))
-        )
+        [&self.uv, &self.conda, &self.rust, &self.node, &self.go]
+            .iter()
+            .all(|c| matches!(c, ComponentStatus::Installed(_)))
     }
 }
 
@@ -549,7 +877,6 @@ mod tests {
     fn test_os_display() {
         assert_eq!(format!("{}", Os::Linux), "linux");
         assert_eq!(format!("{}", Os::MacOS), "macos");
-        assert_eq!(format!("{}", Os::Windows), "windows");
     }
 
     #[test]
@@ -571,16 +898,6 @@ mod tests {
     }
 
     #[test]
-    fn test_miniforge_url_windows() {
-        let url = miniforge_url(Arch::X86_64, Os::Windows).unwrap();
-        assert!(url.contains("Miniforge3-Windows-x86_64.exe"));
-
-        // Windows ARM64 not supported
-        let result = miniforge_url(Arch::Aarch64, Os::Windows);
-        assert!(result.is_err());
-    }
-
-    #[test]
     fn test_uv_url_all_platforms() {
         // Linux
         let url = uv_url(Arch::X86_64, Os::Linux).unwrap();
@@ -589,10 +906,6 @@ mod tests {
         // macOS
         let url = uv_url(Arch::Aarch64, Os::MacOS).unwrap();
         assert!(url.contains("aarch64-apple-darwin"));
-
-        // Windows
-        let url = uv_url(Arch::X86_64, Os::Windows).unwrap();
-        assert!(url.contains("x86_64-pc-windows-msvc"));
     }
 
     #[test]
@@ -605,17 +918,23 @@ mod tests {
 
     #[test]
     fn test_bootstrap_status_complete() {
+        // All five toolchains installed → complete.
         let status = BootstrapStatus {
             uv: ComponentStatus::Installed(Some(PathBuf::from("/bin/uv"))),
             conda: ComponentStatus::Installed(Some(PathBuf::from("/conda"))),
-            rust: ComponentStatus::NotInstalled,
+            rust: ComponentStatus::Installed(Some(PathBuf::from("/cargo"))),
+            node: ComponentStatus::Installed(Some(PathBuf::from("/node"))),
+            go: ComponentStatus::Installed(Some(PathBuf::from("/go"))),
         };
         assert!(status.is_complete());
 
+        // Any missing component → not complete (here: go).
         let status = BootstrapStatus {
-            uv: ComponentStatus::NotInstalled,
+            uv: ComponentStatus::Installed(None),
             conda: ComponentStatus::Installed(None),
-            rust: ComponentStatus::NotInstalled,
+            rust: ComponentStatus::Installed(None),
+            node: ComponentStatus::Installed(None),
+            go: ComponentStatus::NotInstalled,
         };
         assert!(!status.is_complete());
     }

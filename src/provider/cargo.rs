@@ -189,12 +189,9 @@ impl Installer for CargoProvider {
         if status.success() {
             // Try to find the installed binary
             let binary_path = self.bin_dir().join(name);
-            let binary_path_exe = self.bin_dir().join(format!("{}.exe", name));
 
             let path = if binary_path.exists() {
                 Some(binary_path)
-            } else if binary_path_exe.exists() {
-                Some(binary_path_exe)
             } else {
                 // The binary might have a different name
                 which::which(name).ok()
@@ -250,24 +247,16 @@ impl Installer for CargoProvider {
     }
 
     async fn is_installed(&self, name: &str) -> Result<bool> {
-        let binary_path = self.bin_dir().join(name);
-        let binary_path_exe = self.bin_dir().join(format!("{}.exe", name));
-
-        Ok(binary_path.exists() || binary_path_exe.exists())
+        Ok(self.bin_dir().join(name).exists())
     }
 
     async fn installed_version(&self, name: &str) -> Result<Option<String>> {
         // Try to get version from the binary itself
         let binary_path = self.bin_dir().join(name);
-        let binary_path_exe = self.bin_dir().join(format!("{}.exe", name));
-
-        let binary = if binary_path.exists() {
-            binary_path
-        } else if binary_path_exe.exists() {
-            binary_path_exe
-        } else {
+        if !binary_path.exists() {
             return Ok(None);
-        };
+        }
+        let binary = binary_path;
 
         // Try running with --version
         let output = Command::new(&binary).arg("--version").output().ok();

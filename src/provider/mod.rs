@@ -2,6 +2,7 @@ pub mod binary;
 pub mod brew;
 pub mod cargo;
 pub mod conda;
+pub mod go;
 pub mod mock;
 pub mod system;
 pub mod uv;
@@ -355,8 +356,30 @@ pub fn create_default_registry(
     // Add Binary provider (GitHub releases) - always available
     registry.register(Box::new(binary::BinaryProvider::new(arch, os)));
 
-    // Add Cargo provider (crates.io)
-    let cargo_provider = cargo::CargoProvider::new();
+    // Add Go provider (Go CLI tools via go install). If schalentier bootstrapped its own
+    // Go toolchain, use that `go` binary and route tool installs (GOBIN) to schalentier's
+    // own bin dir — the one directory that's always on PATH via env.sh — instead of the
+    // `~/go/bin` convention.
+    let bootstrapped_go_bin = data_dir.join("go/bin/go");
+    let mut go_provider = go::GoProvider::new();
+    if bootstrapped_go_bin.exists() {
+        go_provider = go_provider
+            .with_go_path(bootstrapped_go_bin)
+            .with_gobin(data_dir.join("bin"));
+    }
+    if go_provider.is_available() {
+        registry.register(Box::new(go_provider));
+    }
+
+    // Add Cargo provider (crates.io). If schalentier bootstrapped its own Rust
+    // toolchain, install crates into its data dir rather than the system `~/.cargo`.
+    let bootstrapped_cargo_home = data_dir.join(".cargo");
+    let mut cargo_provider = cargo::CargoProvider::new();
+    if bootstrapped_cargo_home.join("bin").join("cargo").exists() {
+        cargo_provider = cargo_provider
+            .with_cargo_path(bootstrapped_cargo_home.join("bin").join("cargo"))
+            .with_install_root(bootstrapped_cargo_home);
+    }
     if cargo_provider.is_available() {
         registry.register(Box::new(cargo_provider));
     }
@@ -459,5 +482,71 @@ mod tests {
         let (install_result, provider) = result.unwrap();
         assert!(install_result.success);
         assert_eq!(provider, Provider::Binary); // Fell back to MockProvider (Binary)
+    }
+
+    #[tokio::test]
+    async fn test_install_with_fallback_preferred_unavailable_uses_other_registered() {
+        // Two providers registered, preferred one reports unavailable — the
+        // fallback path (not the "preferred not registered" path exercised above)
+        // must skip it and install via the other.
+        let mut registry = ProviderRegistry::new();
+        registry.register(Box::new(
+            MockProvider::unavailable().with_provider(Provider::Cargo),
+        ));
+        registry.register(Box::new(MockProvider::new().with_provider(Provider::Uv)));
+
+        let result = registry
+            .install_with_fallback("test-package", None, Some(Provider::Cargo))
+            .await;
+        assert!(result.is_ok());
+
+        let (install_result, provider) = result.unwrap();
+        assert!(install_result.success);
+        assert_eq!(provider, Provider::Uv);
+    }
+
+    #[test]
+    fn test_create_default_registry_routes_bootstrapped_cargo() {
+        // When schalentier bootstrapped its own Rust toolchain (a cargo binary exists
+        // at data_dir/.cargo/bin/cargo), the registry must route CargoProvider through
+        // that path/install-root instead of the system ~/.cargo/bin.
+        let temp = tempfile::TempDir::new().unwrap();
+        let data_dir = temp.path().to_path_buf();
+        let bootstrapped_cargo = data_dir.join(".cargo").join("bin").join("cargo");
+        std::fs::create_dir_all(bootstrapped_cargo.parent().unwrap()).unwrap();
+        // A fake executable is enough: is_available() only checks `which::which` finds
+        // the path, it doesn't need to run successfully.
+        std::fs::write(&bootstrapped_cargo, "#!/bin/sh\nexit 0\n").unwrap();
+        std::fs::set_permissions(
+            &bootstrapped_cargo,
+            std::os::unix::fs::PermissionsExt::from_mode(0o755),
+        )
+        .unwrap();
+
+        let registry = create_default_registry(Arch::X86_64, Os::Linux, data_dir.clone());
+        let cargo_provider = registry.get(Provider::Cargo);
+
+        assert!(cargo_provider.is_some(), "bootstrapped cargo should register as available");
+        assert!(cargo_provider.unwrap().is_available());
+    }
+
+    #[test]
+    fn test_create_default_registry_routes_bootstrapped_go() {
+        let temp = tempfile::TempDir::new().unwrap();
+        let data_dir = temp.path().to_path_buf();
+        let bootstrapped_go = data_dir.join("go").join("bin").join("go");
+        std::fs::create_dir_all(bootstrapped_go.parent().unwrap()).unwrap();
+        std::fs::write(&bootstrapped_go, "#!/bin/sh\nexit 0\n").unwrap();
+        std::fs::set_permissions(
+            &bootstrapped_go,
+            std::os::unix::fs::PermissionsExt::from_mode(0o755),
+        )
+        .unwrap();
+
+        let registry = create_default_registry(Arch::X86_64, Os::Linux, data_dir.clone());
+        let go_provider = registry.get(Provider::Go);
+
+        assert!(go_provider.is_some(), "bootstrapped go should register as available");
+        assert!(go_provider.unwrap().is_available());
     }
 }

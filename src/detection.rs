@@ -8,7 +8,7 @@ use std::process::Command;
 use tracing::debug;
 
 /// Detection result for a single tool
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct ToolDetection {
     /// Name of the tool
     pub name: String,
@@ -51,16 +51,16 @@ pub struct ToolDetector;
 impl ToolDetector {
     /// Detect all available tools
     pub fn detect_all() -> DetectionResults {
-        let mut results = DetectionResults::default();
-
-        // Detect tools in order
-        results.uv = Self::detect_uv();
-        results.conda = Self::detect_conda();
-        results.brew = Self::detect_brew();
-        results.cargo = Self::detect_cargo();
-        results.system_pm = Self::detect_system_pm();
-
-        results
+        DetectionResults {
+            uv: Self::detect_uv(),
+            conda: Self::detect_conda(),
+            brew: Self::detect_brew(),
+            cargo: Self::detect_cargo(),
+            rust: Self::detect_rust(),
+            node: Self::detect_node(),
+            go: Self::detect_go(),
+            system_pm: Self::detect_system_pm(),
+        }
     }
 
     /// Detect uv (Python package installer)
@@ -163,6 +163,81 @@ impl ToolDetector {
         detection
     }
 
+    /// Detect Rust toolchain (rustup/cargo/rustc)
+    fn detect_rust() -> ToolDetection {
+        let mut detection = ToolDetection::new("rust");
+
+        // Check for rustup first (preferred)
+        if let Ok(output) = Command::new("rustup").arg("--version").output() {
+            if output.status.success() {
+                let version = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                debug!("Detected rustup: {}", version);
+
+                if let Ok(path) = which::which("rustup") {
+                    detection = detection.with_path(path.display().to_string());
+                }
+
+                return detection.with_version(version);
+            }
+        }
+
+        // Fallback: check cargo (without rustup)
+        if let Ok(output) = Command::new("cargo").arg("--version").output() {
+            if output.status.success() {
+                let version = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                debug!("Detected cargo (without rustup): {}", version);
+
+                if let Ok(path) = which::which("cargo") {
+                    detection = detection.with_path(path.display().to_string());
+                }
+
+                return detection.with_version(version);
+            }
+        }
+
+        detection
+    }
+
+    /// Detect Node.js runtime
+    fn detect_node() -> ToolDetection {
+        let mut detection = ToolDetection::new("node");
+
+        if let Ok(output) = Command::new("node").arg("--version").output() {
+            if output.status.success() {
+                let version = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                debug!("Detected Node.js: {}", version);
+
+                if let Ok(path) = which::which("node") {
+                    detection = detection.with_path(path.display().to_string());
+                }
+
+                return detection.with_version(version);
+            }
+        }
+
+        detection
+    }
+
+    /// Detect Go runtime
+    fn detect_go() -> ToolDetection {
+        let mut detection = ToolDetection::new("go");
+
+        if let Ok(output) = Command::new("go").arg("version").output() {
+            if output.status.success() {
+                let version = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                debug!("Detected Go: {}", version);
+
+                if let Ok(path) = which::which("go") {
+                    detection = detection.with_path(path.display().to_string());
+                }
+
+                return detection.with_version(version);
+            }
+        }
+
+        detection
+    }
+
     /// Detect system package manager (apt, pacman, dnf, apk, zypper)
     fn detect_system_pm() -> ToolDetection {
         if let Some(pm) = PackageManager::detect() {
@@ -191,6 +266,9 @@ pub struct DetectionResults {
     pub conda: ToolDetection,
     pub brew: ToolDetection,
     pub cargo: ToolDetection,
+    pub rust: ToolDetection,
+    pub node: ToolDetection,
+    pub go: ToolDetection,
     pub system_pm: ToolDetection,
 }
 
@@ -202,6 +280,9 @@ impl DetectionResults {
             &self.conda,
             &self.brew,
             &self.cargo,
+            &self.rust,
+            &self.node,
+            &self.go,
             &self.system_pm,
         ]
     }
@@ -219,17 +300,6 @@ impl DetectionResults {
     /// Check if any of the tools we might bootstrap are available
     pub fn has_alternative_tools(&self) -> bool {
         self.brew.available || self.cargo.available || self.has_system_pm()
-    }
-}
-
-impl Default for ToolDetection {
-    fn default() -> Self {
-        Self {
-            name: String::new(),
-            available: false,
-            version: None,
-            path: None,
-        }
     }
 }
 

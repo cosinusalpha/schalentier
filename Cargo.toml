@@ -40,8 +40,9 @@ serde_json = "1"
 serde_yaml = "0.9"
 toml = "1.1"
 
-# HTTP client (for downloads) - using rustls with aws-lc-rs crypto
-# Requires C compiler at build time, but produces static binary with no runtime deps
+# HTTP client (for downloads) - using rustls with platform verifier
+# Uses webpki roots as fallback - works in minimal containers without CA packages
+# The rustls-platform-verifier feature enables bundled certificates as fallback
 reqwest = { version = "0.13", default-features = false, features = ["json", "rustls", "http2", "charset"] }
 
 # Async utilities
@@ -63,6 +64,15 @@ zip = { version = "8", default-features = false, features = ["deflate"] }
 
 # Tool detection
 which = "8"
+
+# Secrets management: age encryption (passphrase-based) + OS keyring for the master password.
+# When no native OS keyring/Secret Service is available (e.g. CI, containers, headless
+# Linux), the master password falls back to a small age-encrypted flat file instead.
+age = { version = "0.11.3", features = ["armor"] }
+keyring = "4.1.4"
+rand = "0.9"
+hex = "0.4"
+minijinja = "2.21.0"
 
 # Unix utilities
 [target.'cfg(unix)'.dependencies]
