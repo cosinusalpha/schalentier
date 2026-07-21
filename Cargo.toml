@@ -68,9 +68,9 @@ which = "8"
 # Secrets management: age encryption (passphrase-based) + OS keyring for the master password.
 # When no native OS keyring/Secret Service is available (e.g. CI, containers, headless
 # Linux), the master password falls back to a small age-encrypted flat file instead.
-age = { version = "0.11.3", features = ["armor"] }
+age = { version = "0.12.1", features = ["armor"] }
 keyring = "4.1.4"
-rand = "0.9"
+rand = "0.10"
 hex = "0.4"
 minijinja = "2.21.0"
 
