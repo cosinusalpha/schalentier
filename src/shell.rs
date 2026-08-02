@@ -294,8 +294,10 @@ mod tests {
     #[test]
     fn test_bash_env_script_contains_paths() {
         let data_dir = PathBuf::from("/home/user/.schalentier");
-        let mut bootstrap = BootstrapState::default();
-        bootstrap.conda_path = Some(data_dir.join("conda"));
+        let bootstrap = BootstrapState {
+            conda_path: Some(data_dir.join("conda")),
+            ..Default::default()
+        };
         let script = generate_bash_env(&data_dir, &bootstrap);
 
         // Check path contains the data_dir (platform-independent)
@@ -309,10 +311,12 @@ mod tests {
     #[test]
     fn test_bash_env_script_includes_bootstrapped_toolchain_paths() {
         let data_dir = PathBuf::from("/home/user/.schalentier");
-        let mut bootstrap = BootstrapState::default();
-        bootstrap.rust_path = Some(PathBuf::from("/home/user/.schalentier/.cargo/bin"));
-        bootstrap.node_path = Some(PathBuf::from("/home/user/.schalentier/node/bin"));
-        bootstrap.go_path = Some(PathBuf::from("/home/user/.schalentier/go/bin"));
+        let bootstrap = BootstrapState {
+            rust_path: Some(PathBuf::from("/home/user/.schalentier/.cargo/bin")),
+            node_path: Some(PathBuf::from("/home/user/.schalentier/node/bin")),
+            go_path: Some(PathBuf::from("/home/user/.schalentier/go/bin")),
+            ..Default::default()
+        };
         let script = generate_bash_env(&data_dir, &bootstrap);
 
         assert!(script.contains("/home/user/.schalentier/.cargo/bin"));
@@ -323,9 +327,11 @@ mod tests {
     #[test]
     fn test_bash_env_script_skips_conda_hook_when_system_conda() {
         let data_dir = PathBuf::from("/home/user/.schalentier");
-        let mut bootstrap = BootstrapState::default();
         // System conda, not our own Miniforge install.
-        bootstrap.conda_path = Some(PathBuf::from("/usr/bin"));
+        let bootstrap = BootstrapState {
+            conda_path: Some(PathBuf::from("/usr/bin")),
+            ..Default::default()
+        };
         let script = generate_bash_env(&data_dir, &bootstrap);
 
         assert!(!script.contains("conda.sh"));
@@ -344,8 +350,10 @@ mod tests {
     #[test]
     fn test_fish_env_script_contains_paths() {
         let data_dir = PathBuf::from("/home/user/.schalentier");
-        let mut bootstrap = BootstrapState::default();
-        bootstrap.conda_path = Some(data_dir.join("conda"));
+        let bootstrap = BootstrapState {
+            conda_path: Some(data_dir.join("conda")),
+            ..Default::default()
+        };
         let script = generate_fish_env(&data_dir, &bootstrap);
 
         assert!(script.contains("fish_add_path"));

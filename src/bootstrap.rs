@@ -611,7 +611,7 @@ impl Bootstrap {
         let rustup_home = self.paths.data_dir.join("rustup");
 
         let status = std::process::Command::new(&download_path)
-            .args(&["-y", "--no-modify-path"])
+            .args(["-y", "--no-modify-path"])
             .env("CARGO_HOME", &cargo_home)
             .env("RUSTUP_HOME", &rustup_home)
             .status()

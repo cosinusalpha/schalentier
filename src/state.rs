@@ -92,10 +92,8 @@ pub fn find_project_config_from(start: &Path) -> Option<PathBuf> {
             return None;
         }
 
-        match dir.parent() {
-            Some(parent) => dir = parent.to_path_buf(),
-            None => return None,
-        }
+        let parent = dir.parent()?;
+        dir = parent.to_path_buf();
     }
 }
 

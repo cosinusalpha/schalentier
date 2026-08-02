@@ -50,6 +50,12 @@ pub struct PackageRegistry {
     aliases: HashMap<String, String>,
 }
 
+impl Default for PackageRegistry {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl PackageRegistry {
     pub fn new() -> Self {
         Self {

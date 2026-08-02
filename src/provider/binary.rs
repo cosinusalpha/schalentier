@@ -152,7 +152,7 @@ impl BinaryProvider {
             Os::MacOS => vec!["darwin", "macos", "osx", "apple", "Darwin", "MacOS"],
         };
 
-        let extension = vec![".tar.gz", ".tgz", ".zip"];
+        let extension = [".tar.gz", ".tgz", ".zip"];
 
         // Score each asset
         let mut scored_assets: Vec<(&GitHubAsset, u32)> = assets
@@ -205,7 +205,7 @@ impl BinaryProvider {
             })
             .collect();
 
-        scored_assets.sort_by(|a, b| b.1.cmp(&a.1));
+        scored_assets.sort_by_key(|b| std::cmp::Reverse(b.1));
         scored_assets.first().map(|(asset, _)| *asset)
     }
 

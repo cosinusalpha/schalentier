@@ -938,17 +938,15 @@ async fn cmd_sync(
     // Check for gist:// URL scheme
     if let Some(ref url) = remote_url {
         if let Some(gist_id) = gist::parse_gist_url(url) {
-            return cmd_sync_gist(
-                &gist_id,
+            let opts = GistSyncOptions {
                 push,
                 pull,
                 prune,
                 dry_run,
                 public_flag,
                 secret_flag,
-                &config,
-            )
-            .await;
+            };
+            return cmd_sync_gist(&gist_id, &opts, &config).await;
         }
     }
 
@@ -1323,30 +1321,34 @@ async fn cmd_sync(
     Ok(())
 }
 
-/// Sync configuration with GitHub Gist (encrypted)
-async fn cmd_sync_gist(
-    gist_id: &str,
+struct GistSyncOptions {
     push: bool,
     pull: bool,
     prune: bool,
     dry_run: bool,
     public_flag: bool,
     secret_flag: bool,
+}
+
+/// Sync configuration with GitHub Gist (encrypted)
+async fn cmd_sync_gist(
+    gist_id: &str,
+    opts: &GistSyncOptions,
     config: &SchalentierConfig,
 ) -> Result<()> {
     let config_dir = schalentier::state::config_dir()?;
 
     // Determine visibility: CLI flag > config default
-    let is_public = if public_flag {
+    let is_public = if opts.public_flag {
         true
-    } else if secret_flag {
+    } else if opts.secret_flag {
         false
     } else {
         config.sync.gist_public
     };
 
     // Dry run - show what would happen
-    if dry_run {
+    if opts.dry_run {
         println!("Dry run: showing what would happen during gist sync");
         println!();
         println!("  Config directory: {}", config_dir.display());
@@ -1357,11 +1359,11 @@ async fn cmd_sync_gist(
         );
         println!(
             "  Mode: {}",
-            if push && pull {
+            if opts.push && opts.pull {
                 "bidirectional"
-            } else if push {
+            } else if opts.push {
                 "push"
-            } else if pull {
+            } else if opts.pull {
                 "pull"
             } else {
                 "bidirectional (default)"
@@ -1376,7 +1378,7 @@ async fn cmd_sync_gist(
     let password = secrets::get_or_create_master_password()?;
 
     // PULL: Download and decrypt
-    if pull || (!push && !pull) {
+    if opts.pull || (!opts.push && !opts.pull) {
         let spinner = create_spinner("Downloading encrypted gist...");
 
         let gist_id_to_fetch = if gist_id == "new" {
@@ -1469,7 +1471,7 @@ async fn cmd_sync_gist(
                 }
 
                 // PRUNE: Remove tools that are in state but not in config
-                if prune {
+                if opts.prune {
                     let to_remove: Vec<_> = state
                         .tools
                         .keys()
@@ -1505,7 +1507,7 @@ async fn cmd_sync_gist(
     }
 
     // PUSH: Encrypt and upload
-    if push {
+    if opts.push {
         let config_path = config_dir.join("schalentier.toml");
 
         if !config_path.exists() {
@@ -3405,76 +3407,6 @@ fn print_secret_list(store: &schalentier::secrets::SecretStore, tags: Option<&[S
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_version_is_newer_basic() {
-        assert!(version_is_newer("2.0.0", "1.0.0"));
-        assert!(version_is_newer("1.1.0", "1.0.0"));
-        assert!(version_is_newer("1.0.1", "1.0.0"));
-        assert!(!version_is_newer("1.0.0", "1.0.0"));
-        assert!(!version_is_newer("1.0.0", "2.0.0"));
-    }
-
-    #[test]
-    fn test_version_is_newer_with_prefix() {
-        assert!(version_is_newer("v2.0.0", "v1.0.0"));
-        assert!(version_is_newer("v2.0.0", "1.0.0"));
-        assert!(version_is_newer("2.0.0", "v1.0.0"));
-        assert!(!version_is_newer("v1.0.0", "v1.0.0"));
-    }
-
-    #[test]
-    fn test_version_is_newer_different_lengths() {
-        assert!(version_is_newer("1.0.1", "1.0"));
-        assert!(version_is_newer("1.1", "1.0.0"));
-        assert!(!version_is_newer("1.0", "1.0.1"));
-    }
-
-    #[test]
-    fn test_version_is_newer_with_prerelease() {
-        // 1.0.0-beta should be treated as 1.0.0 for basic comparison
-        assert!(version_is_newer("1.0.1", "1.0.0-beta"));
-        assert!(version_is_newer("1.0.0", "0.9.9-rc1"));
-    }
-
-    #[test]
-    fn test_pinned_version_returns_pin() {
-        let mut config = SchalentierConfig::default();
-        config.tools.insert(
-            "bat".to_string(),
-            ToolEntry {
-                provider: None,
-                version: Some("0.24.0".to_string()),
-                options: Default::default(),
-            },
-        );
-        assert_eq!(pinned_version(&config, "bat"), Some("0.24.0"));
-    }
-
-    #[test]
-    fn test_pinned_version_latest_means_unpinned() {
-        let mut config = SchalentierConfig::default();
-        config.tools.insert(
-            "bat".to_string(),
-            ToolEntry {
-                provider: None,
-                version: Some("latest".to_string()),
-                options: Default::default(),
-            },
-        );
-        assert_eq!(pinned_version(&config, "bat"), None);
-    }
-
-    #[test]
-    fn test_pinned_version_no_entry_is_unpinned() {
-        let config = SchalentierConfig::default();
-        assert_eq!(pinned_version(&config, "bat"), None);
-    }
-}
-
 fn cmd_registry(action: schalentier::cli::RegistryAction) -> anyhow::Result<()> {
     use schalentier::cli::RegistryAction;
 
@@ -3670,4 +3602,74 @@ async fn cmd_audit(package: Option<String>, refresh: bool) -> anyhow::Result<()>
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_version_is_newer_basic() {
+        assert!(version_is_newer("2.0.0", "1.0.0"));
+        assert!(version_is_newer("1.1.0", "1.0.0"));
+        assert!(version_is_newer("1.0.1", "1.0.0"));
+        assert!(!version_is_newer("1.0.0", "1.0.0"));
+        assert!(!version_is_newer("1.0.0", "2.0.0"));
+    }
+
+    #[test]
+    fn test_version_is_newer_with_prefix() {
+        assert!(version_is_newer("v2.0.0", "v1.0.0"));
+        assert!(version_is_newer("v2.0.0", "1.0.0"));
+        assert!(version_is_newer("2.0.0", "v1.0.0"));
+        assert!(!version_is_newer("v1.0.0", "v1.0.0"));
+    }
+
+    #[test]
+    fn test_version_is_newer_different_lengths() {
+        assert!(version_is_newer("1.0.1", "1.0"));
+        assert!(version_is_newer("1.1", "1.0.0"));
+        assert!(!version_is_newer("1.0", "1.0.1"));
+    }
+
+    #[test]
+    fn test_version_is_newer_with_prerelease() {
+        // 1.0.0-beta should be treated as 1.0.0 for basic comparison
+        assert!(version_is_newer("1.0.1", "1.0.0-beta"));
+        assert!(version_is_newer("1.0.0", "0.9.9-rc1"));
+    }
+
+    #[test]
+    fn test_pinned_version_returns_pin() {
+        let mut config = SchalentierConfig::default();
+        config.tools.insert(
+            "bat".to_string(),
+            ToolEntry {
+                provider: None,
+                version: Some("0.24.0".to_string()),
+                options: Default::default(),
+            },
+        );
+        assert_eq!(pinned_version(&config, "bat"), Some("0.24.0"));
+    }
+
+    #[test]
+    fn test_pinned_version_latest_means_unpinned() {
+        let mut config = SchalentierConfig::default();
+        config.tools.insert(
+            "bat".to_string(),
+            ToolEntry {
+                provider: None,
+                version: Some("latest".to_string()),
+                options: Default::default(),
+            },
+        );
+        assert_eq!(pinned_version(&config, "bat"), None);
+    }
+
+    #[test]
+    fn test_pinned_version_no_entry_is_unpinned() {
+        let config = SchalentierConfig::default();
+        assert_eq!(pinned_version(&config, "bat"), None);
+    }
 }

@@ -152,7 +152,7 @@ impl Installer for GoProvider {
         let package_spec = format!("{}@{}", name, version_str);
 
         let mut cmd = Command::new(self.go_bin());
-        cmd.args(&["install", &package_spec]);
+        cmd.args(["install", &package_spec]);
 
         // Set GOBIN if we have a custom path
         if let Some(ref gobin) = self.gobin_dir() {
@@ -178,7 +178,7 @@ impl Installer for GoProvider {
         }
 
         // Find installed binary (last component of module path)
-        let binary_name = name.split('/').last().unwrap_or(name);
+        let binary_name = name.split('/').next_back().unwrap_or(name);
         let binary_path = self.gobin_dir().map(|p| p.join(binary_name));
 
         Ok(InstallResult {
@@ -191,7 +191,7 @@ impl Installer for GoProvider {
 
     async fn uninstall(&self, name: &str) -> Result<()> {
         // Go has no uninstall command, delete binary manually
-        let binary_name = name.split('/').last().unwrap_or(name);
+        let binary_name = name.split('/').next_back().unwrap_or(name);
 
         if let Some(gobin) = self.gobin_dir() {
             let binary_path = gobin.join(binary_name);
@@ -211,7 +211,7 @@ impl Installer for GoProvider {
     }
 
     async fn is_installed(&self, name: &str) -> Result<bool> {
-        let binary_name = name.split('/').last().unwrap_or(name);
+        let binary_name = name.split('/').next_back().unwrap_or(name);
 
         if let Some(gobin) = self.gobin_dir() {
             return Ok(gobin.join(binary_name).exists());
@@ -226,7 +226,7 @@ impl Installer for GoProvider {
         //   <bin>: go1.22.5
         //       path  github.com/owner/tool
         //       mod   github.com/owner/tool  v0.44.1  h1:...
-        let binary_name = name.split('/').last().unwrap_or(name);
+        let binary_name = name.split('/').next_back().unwrap_or(name);
         let Some(gobin) = self.gobin_dir() else {
             return Ok(None);
         };
