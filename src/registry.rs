@@ -93,15 +93,16 @@ impl PackageRegistry {
     }
 
     fn merge_json(&mut self, json: &str) -> Result<()> {
-        let registry: Registry = serde_json::from_str(json)
-            .with_context(|| "Failed to parse registry JSON")?;
+        let registry: Registry =
+            serde_json::from_str(json).with_context(|| "Failed to parse registry JSON")?;
 
         for package in registry.packages {
             let name_lower = package.name.to_lowercase();
 
             // Add aliases
             for alias in &package.aliases {
-                self.aliases.insert(alias.to_lowercase(), name_lower.clone());
+                self.aliases
+                    .insert(alias.to_lowercase(), name_lower.clone());
             }
             self.aliases.insert(name_lower.clone(), name_lower.clone());
 
@@ -201,7 +202,11 @@ impl PackageRegistry {
                 }
 
                 // Check aliases
-                if pkg.aliases.iter().any(|a| a.to_lowercase().contains(&query_lower)) {
+                if pkg
+                    .aliases
+                    .iter()
+                    .any(|a| a.to_lowercase().contains(&query_lower))
+                {
                     return true;
                 }
 

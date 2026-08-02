@@ -526,7 +526,10 @@ mod tests {
         let registry = create_default_registry(Arch::X86_64, Os::Linux, data_dir.clone());
         let cargo_provider = registry.get(Provider::Cargo);
 
-        assert!(cargo_provider.is_some(), "bootstrapped cargo should register as available");
+        assert!(
+            cargo_provider.is_some(),
+            "bootstrapped cargo should register as available"
+        );
         assert!(cargo_provider.unwrap().is_available());
     }
 
@@ -546,7 +549,10 @@ mod tests {
         let registry = create_default_registry(Arch::X86_64, Os::Linux, data_dir.clone());
         let go_provider = registry.get(Provider::Go);
 
-        assert!(go_provider.is_some(), "bootstrapped go should register as available");
+        assert!(
+            go_provider.is_some(),
+            "bootstrapped go should register as available"
+        );
         assert!(go_provider.unwrap().is_available());
     }
 }

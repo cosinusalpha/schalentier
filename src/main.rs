@@ -13,7 +13,9 @@ use schalentier::{
     gist,
     provider::create_default_registry,
     secrets,
-    shell::{ensure_sourced, is_sourced, rc_file_path, shell_init_snippet, write_env_scripts, ShellType},
+    shell::{
+        ensure_sourced, is_sourced, rc_file_path, shell_init_snippet, write_env_scripts, ShellType,
+    },
     state::default_data_dir,
     Cli, Commands, LocalState, Provider, SchalentierConfig, Shell,
 };
@@ -83,9 +85,22 @@ async fn run() -> Result<()> {
             public,
             secret,
         } => {
-            cmd_sync(remote.as_deref(), push, pull, prune, dry_run, public, secret).await?;
+            cmd_sync(
+                remote.as_deref(),
+                push,
+                pull,
+                prune,
+                dry_run,
+                public,
+                secret,
+            )
+            .await?;
         }
-        Commands::Update { name, dry_run, force } => {
+        Commands::Update {
+            name,
+            dry_run,
+            force,
+        } => {
             cmd_update(name.as_deref(), dry_run, force).await?;
         }
         Commands::Doctor { fix } => {
@@ -97,7 +112,11 @@ async fn run() -> Result<()> {
         } => {
             cmd_remove(&name, keep_installed).await?;
         }
-        Commands::List { detailed, provider, security } => {
+        Commands::List {
+            detailed,
+            provider,
+            security,
+        } => {
             cmd_list(detailed, provider.as_deref(), security).await?;
         }
         Commands::Search {
@@ -240,7 +259,9 @@ fn setup_shell_integration(
     {
         Ok(answer) => answer,
         Err(inquire::InquireError::OperationCanceled) => {
-            println!("\nSkipped. To complete setup manually, add the following to your shell config:\n");
+            println!(
+                "\nSkipped. To complete setup manually, add the following to your shell config:\n"
+            );
             println!("{}", shell_init_snippet(shell, data_dir));
             return Ok(());
         }
@@ -355,11 +376,26 @@ fn prompt_init_options() -> Result<(bool, bool, bool, bool, bool)> {
 
     // Ask about bootstrap components
     let components = [
-        ("uv", "uv - Fast Python package installer (recommended for Python CLI tools)"),
-        ("conda", "Miniforge/Conda - Scientific packages and isolated environments"),
-        ("rust", "Rust (rustup) - Rust toolchain and cargo package manager"),
-        ("node", "Node.js - JavaScript runtime and npm package manager"),
-        ("go", "Go - Go toolchain for building and installing Go CLI tools"),
+        (
+            "uv",
+            "uv - Fast Python package installer (recommended for Python CLI tools)",
+        ),
+        (
+            "conda",
+            "Miniforge/Conda - Scientific packages and isolated environments",
+        ),
+        (
+            "rust",
+            "Rust (rustup) - Rust toolchain and cargo package manager",
+        ),
+        (
+            "node",
+            "Node.js - JavaScript runtime and npm package manager",
+        ),
+        (
+            "go",
+            "Go - Go toolchain for building and installing Go CLI tools",
+        ),
     ];
 
     let selections = MultiSelect::new(
@@ -392,7 +428,13 @@ fn prompt_init_options() -> Result<(bool, bool, bool, bool, bool)> {
         .prompt();
 
     match proceed {
-        Ok(true) => Ok((install_uv, install_conda, install_rust, install_node, install_go)),
+        Ok(true) => Ok((
+            install_uv,
+            install_conda,
+            install_rust,
+            install_node,
+            install_go,
+        )),
         Ok(false) => {
             println!("\nSetup cancelled.");
             std::process::exit(0);
@@ -426,13 +468,16 @@ async fn cmd_add(
     // ==========================================
 
     let pkg_registry = schalentier::registry::PackageRegistry::load()?;
-    
+
     let resolution = match pkg_registry.resolve_all_providers(name) {
         Ok(r) => r,
         Err(_) => {
             // Not in the curated registry. Query the live providers to help the user:
             // confirm an exact match, or surface close matches for a likely typo.
-            print_info(&format!("'{}' not in registry, searching providers...", name));
+            print_info(&format!(
+                "'{}' not in registry, searching providers...",
+                name
+            ));
             search_providers_for(name).await;
             return cmd_add_legacy(name, provider, no_install, dry_run, config, state).await;
         }
@@ -467,7 +512,10 @@ async fn cmd_add(
     // Show unavailable providers
     if !dry_run && !resolution.unavailable_providers.is_empty() {
         println!();
-        println!("Not available in {} provider(s):", resolution.unavailable_providers.len());
+        println!(
+            "Not available in {} provider(s):",
+            resolution.unavailable_providers.len()
+        );
         let mut unavail: Vec<_> = resolution.unavailable_providers.iter().collect();
         unavail.sort_by(|a, b| a.0.cmp(b.0));
         for (provider_name, reason) in &unavail {
@@ -499,7 +547,12 @@ async fn cmd_add(
                 "Package '{}' is not available via {}. Available: {}",
                 name,
                 p,
-                resolution.available_providers.keys().cloned().collect::<Vec<_>>().join(", ")
+                resolution
+                    .available_providers
+                    .keys()
+                    .cloned()
+                    .collect::<Vec<_>>()
+                    .join(", ")
             ));
         }
         p.to_string()
@@ -539,15 +592,19 @@ async fn cmd_add(
     }
 
     // Install using selected provider
-    let provider_info = resolution.available_providers.get(&selected_provider).unwrap();
-    
+    let provider_info = resolution
+        .available_providers
+        .get(&selected_provider)
+        .unwrap();
+
     // Use legacy install logic
     cmd_install_with_provider(
         &resolution.canonical_name,
         &provider_info.package_name,
         &selected_provider,
         &mut state,
-    ).await?;
+    )
+    .await?;
 
     // Update config
     config.tools.insert(
@@ -588,7 +645,11 @@ async fn search_providers_for(name: &str) {
     }
 
     if let Some(exact) = results.iter().find(|r| r.name.eq_ignore_ascii_case(name)) {
-        let providers: Vec<String> = exact.providers.iter().map(|p| p.provider.to_string()).collect();
+        let providers: Vec<String> = exact
+            .providers
+            .iter()
+            .map(|p| p.provider.to_string())
+            .collect();
         print_info(&format!(
             "Found '{}' in: {}",
             exact.name,
@@ -597,7 +658,8 @@ async fn search_providers_for(name: &str) {
     } else {
         println!("Did you mean one of these?");
         for r in results.iter().take(5) {
-            let providers: Vec<String> = r.providers.iter().map(|p| p.provider.to_string()).collect();
+            let providers: Vec<String> =
+                r.providers.iter().map(|p| p.provider.to_string()).collect();
             println!("  {} ({})", r.name, providers.join(", "));
         }
     }
@@ -646,7 +708,10 @@ async fn cmd_add_legacy(
 
     if no_install {
         config.save()?;
-        print_success(&format!("Added '{}' to configuration (not installed)", name));
+        print_success(&format!(
+            "Added '{}' to configuration (not installed)",
+            name
+        ));
         return Ok(());
     }
 
@@ -783,7 +848,7 @@ fn select_best_provider(
             return Ok(provider_str);
         }
     }
-    
+
     // No priority match, use first available
     resolution
         .available_providers
@@ -1286,7 +1351,10 @@ async fn cmd_sync_gist(
         println!();
         println!("  Config directory: {}", config_dir.display());
         println!("  Gist ID: {}", gist_id);
-        println!("  Visibility: {}", if is_public { "public" } else { "secret" });
+        println!(
+            "  Visibility: {}",
+            if is_public { "public" } else { "secret" }
+        );
         println!(
             "  Mode: {}",
             if push && pull {
@@ -1321,12 +1389,14 @@ async fn cmd_sync_gist(
         match gist_client.get_gist(gist_id_to_fetch).await {
             Ok(encrypted) => {
                 spinner.finish_and_clear();
-                
+
                 let decrypted = match gist::decrypt_content(&encrypted, &password) {
                     Ok(content) => content,
                     Err(e) => {
                         print_warning(&format!("Failed to decrypt gist: {}", e));
-                        print_info("Make sure you're using the same master password across machines");
+                        print_info(
+                            "Make sure you're using the same master password across machines",
+                        );
                         return Err(e);
                     }
                 };
@@ -1360,7 +1430,11 @@ async fn cmd_sync_gist(
                     for (name, entry) in to_install {
                         info!("Installing {}...", name);
                         match registry
-                            .install_with_fallback(name, entry.version.as_deref(), entry.provider.clone())
+                            .install_with_fallback(
+                                name,
+                                entry.version.as_deref(),
+                                entry.provider.clone(),
+                            )
                             .await
                         {
                             Ok((result, provider)) => {
@@ -1411,9 +1485,10 @@ async fn cmd_sync_gist(
                                 if let Some(provider) = registry.get(tool.provider.clone()) {
                                     match provider.uninstall(&name).await {
                                         Ok(_) => print_success(&format!("  Removed {}", name)),
-                                        Err(e) => {
-                                            print_warning(&format!("  Failed to remove {}: {}", name, e))
-                                        }
+                                        Err(e) => print_warning(&format!(
+                                            "  Failed to remove {}: {}",
+                                            name, e
+                                        )),
                                     }
                                 }
                             }
@@ -1432,7 +1507,7 @@ async fn cmd_sync_gist(
     // PUSH: Encrypt and upload
     if push {
         let config_path = config_dir.join("schalentier.toml");
-        
+
         if !config_path.exists() {
             print_warning("No schalentier.toml found. Run 'schalentier init' first.");
             return Ok(());
@@ -1460,7 +1535,7 @@ async fn cmd_sync_gist(
             let spinner = create_spinner("Updating encrypted gist...");
             gist_client.update_gist(gist_id, &encrypted).await?;
             spinner.finish_and_clear();
-            
+
             print_success(&format!("Updated gist: gist://{}", gist_id));
         }
     }
@@ -1819,7 +1894,9 @@ async fn cmd_doctor(fix: bool) -> Result<()> {
             }
             Some(rc) => {
                 println!("NOT SOURCED ({})", rc.display());
-                println!("  -> Run 'schalentier init --setup-shell' or add the source line manually");
+                println!(
+                    "  -> Run 'schalentier init --setup-shell' or add the source line manually"
+                );
             }
             None => println!("UNKNOWN (could not determine home directory)"),
         }
@@ -2114,7 +2191,11 @@ fn security_status_line(
         Some(report) => format!(
             "⚠ {} advisor{}",
             report.total_advisories(),
-            if report.total_advisories() == 1 { "y" } else { "ies" }
+            if report.total_advisories() == 1 {
+                "y"
+            } else {
+                "ies"
+            }
         ),
         None => "? not checked (run `schalentier audit`)".to_string(),
     }
@@ -2261,7 +2342,10 @@ async fn cmd_list(detailed: bool, provider_filter: Option<&str>, security: bool)
 
             let security_str = match (&security_auditor, &pkg_registry) {
                 (Some(auditor), Some(pkg_registry)) => {
-                    format!(" {}", security_status_line(auditor, pkg_registry, name, installed))
+                    format!(
+                        " {}",
+                        security_status_line(auditor, pkg_registry, name, installed)
+                    )
                 }
                 _ => String::new(),
             };
@@ -2832,9 +2916,10 @@ fn build_template_context_if_needed(
         .map(|(name, entry)| (name.clone(), entry.value.clone()))
         .collect();
 
-    let ctx = schalentier::template::TemplateContext::from_system(&os.to_string(), &arch.to_string())
-        .with_secrets(secret_values)
-        .with_variables(config.variables.clone());
+    let ctx =
+        schalentier::template::TemplateContext::from_system(&os.to_string(), &arch.to_string())
+            .with_secrets(secret_values)
+            .with_variables(config.variables.clone());
 
     Ok(Some(ctx))
 }
@@ -3444,7 +3529,8 @@ fn cmd_registry(action: schalentier::cli::RegistryAction) -> anyhow::Result<()> 
 fn cmd_registry_update() -> anyhow::Result<()> {
     println!("Downloading latest registry from GitHub...");
 
-    let url = "https://raw.githubusercontent.com/cosinusalpha/schalentier/main/registry/packages.json";
+    let url =
+        "https://raw.githubusercontent.com/cosinusalpha/schalentier/main/registry/packages.json";
 
     let rt = tokio::runtime::Runtime::new()?;
     let content = rt.block_on(async {
@@ -3509,7 +3595,9 @@ async fn cmd_audit(package: Option<String>, refresh: bool) -> anyhow::Result<()>
         print!(
             "  {} ({})...",
             pkg_name,
-            installed.map(|t| t.provider.to_string()).unwrap_or_else(|| "?".to_string())
+            installed
+                .map(|t| t.provider.to_string())
+                .unwrap_or_else(|| "?".to_string())
         );
 
         match pkg_registry.resolve_all_providers(pkg_name) {
@@ -3564,7 +3652,11 @@ async fn cmd_audit(package: Option<String>, refresh: bool) -> anyhow::Result<()>
         print_success("All packages passed security audit");
     } else {
         println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-        let kind = if has_critical { "high/critical" } else { "known" };
+        let kind = if has_critical {
+            "high/critical"
+        } else {
+            "known"
+        };
         println!(
             "⚠️  {} advisor{} ({} severity) across {} package(s)",
             total_advisories,

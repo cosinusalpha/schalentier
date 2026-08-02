@@ -123,11 +123,7 @@ impl GistClient {
         if !response.status().is_success() {
             let status = response.status();
             let body = response.text().await.unwrap_or_default();
-            return Err(anyhow::anyhow!(
-                "GitHub API error ({}): {}",
-                status,
-                body
-            ));
+            return Err(anyhow::anyhow!("GitHub API error ({}): {}", status, body));
         }
 
         let gist: GistResponse = response
@@ -156,11 +152,7 @@ impl GistClient {
         if !response.status().is_success() {
             let status = response.status();
             let body = response.text().await.unwrap_or_default();
-            return Err(anyhow::anyhow!(
-                "GitHub API error ({}): {}",
-                status,
-                body
-            ));
+            return Err(anyhow::anyhow!("GitHub API error ({}): {}", status, body));
         }
 
         let gist: GistResponse = response
@@ -168,15 +160,9 @@ impl GistClient {
             .await
             .context("Failed to parse gist response")?;
 
-        let file = gist
-            .files
-            .get(DEFAULT_GIST_FILENAME)
-            .ok_or_else(|| {
-                anyhow::anyhow!(
-                    "Gist does not contain '{}' file",
-                    DEFAULT_GIST_FILENAME
-                )
-            })?;
+        let file = gist.files.get(DEFAULT_GIST_FILENAME).ok_or_else(|| {
+            anyhow::anyhow!("Gist does not contain '{}' file", DEFAULT_GIST_FILENAME)
+        })?;
 
         debug!("Fetched gist content ({} bytes)", file.content.len());
 
@@ -214,11 +200,7 @@ impl GistClient {
         if !response.status().is_success() {
             let status = response.status();
             let body = response.text().await.unwrap_or_default();
-            return Err(anyhow::anyhow!(
-                "GitHub API error ({}): {}",
-                status,
-                body
-            ));
+            return Err(anyhow::anyhow!("GitHub API error ({}): {}", status, body));
         }
 
         debug!("Updated gist: {}", gist_id);
@@ -253,10 +235,10 @@ mod tests {
     fn test_encrypt_decrypt_roundtrip() {
         let password = SecretString::from("test-password-123".to_string());
         let plaintext = "[tools]\nripgrep = {}";
-        
+
         let encrypted = encrypt_content(plaintext, &password).unwrap();
         assert!(encrypted.starts_with("-----BEGIN AGE ENCRYPTED FILE-----"));
-        
+
         let decrypted = decrypt_content(&encrypted, &password).unwrap();
         assert_eq!(plaintext, decrypted);
     }
@@ -265,10 +247,10 @@ mod tests {
     fn test_wrong_password_fails() {
         let password1 = SecretString::from("password1".to_string());
         let password2 = SecretString::from("password2".to_string());
-        
+
         let encrypted = encrypt_content("test", &password1).unwrap();
         let result = decrypt_content(&encrypted, &password2);
-        
+
         assert!(result.is_err());
     }
 

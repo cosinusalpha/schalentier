@@ -170,7 +170,10 @@ impl Installer for GoProvider {
                 path: None,
                 version: version.map(|v| v.to_string()),
                 success: false,
-                message: Some(format!("go install failed with exit code: {:?}", status.code())),
+                message: Some(format!(
+                    "go install failed with exit code: {:?}",
+                    status.code()
+                )),
             });
         }
 
@@ -243,7 +246,9 @@ impl Installer for GoProvider {
             _ => return Ok(None),
         };
 
-        Ok(parse_go_mod_version(&String::from_utf8_lossy(&output.stdout)))
+        Ok(parse_go_mod_version(&String::from_utf8_lossy(
+            &output.stdout,
+        )))
     }
 
     fn is_available(&self) -> bool {

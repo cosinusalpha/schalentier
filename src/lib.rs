@@ -15,7 +15,6 @@ pub mod shell;
 pub mod state;
 pub mod template;
 
-
 pub use bootstrap::{Arch, Bootstrap, Os};
 pub use clap_complete::Shell;
 pub use cli::{Cli, Commands, ConfigAction};

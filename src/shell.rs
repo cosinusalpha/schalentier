@@ -42,10 +42,14 @@ impl ShellType {
 /// beyond the always-present `bin_dir`. Only includes a toolchain's path if schalentier
 /// itself bootstrapped it — a user's pre-existing Rust/Node/Go setup is left alone.
 fn extra_bin_dirs(bootstrap: &BootstrapState) -> Vec<&Path> {
-    [&bootstrap.rust_path, &bootstrap.node_path, &bootstrap.go_path]
-        .into_iter()
-        .filter_map(|p| p.as_deref())
-        .collect()
+    [
+        &bootstrap.rust_path,
+        &bootstrap.node_path,
+        &bootstrap.go_path,
+    ]
+    .into_iter()
+    .filter_map(|p| p.as_deref())
+    .collect()
 }
 
 /// Whether schalentier installed its own Miniforge (as opposed to a pre-existing system
@@ -60,7 +64,11 @@ pub fn generate_bash_env(data_dir: &Path, bootstrap: &BootstrapState) -> String 
     let conda_dir = data_dir.join("conda");
 
     let path_entries: Vec<String> = std::iter::once(bin_dir.display().to_string())
-        .chain(extra_bin_dirs(bootstrap).iter().map(|p| p.display().to_string()))
+        .chain(
+            extra_bin_dirs(bootstrap)
+                .iter()
+                .map(|p| p.display().to_string()),
+        )
         .collect();
     let path_export = format!("export PATH=\"{}:$PATH\"", path_entries.join(":"));
 
@@ -105,7 +113,11 @@ pub fn generate_fish_env(data_dir: &Path, bootstrap: &BootstrapState) -> String 
     let conda_dir = data_dir.join("conda");
 
     let path_lines: String = std::iter::once(bin_dir.display().to_string())
-        .chain(extra_bin_dirs(bootstrap).iter().map(|p| p.display().to_string()))
+        .chain(
+            extra_bin_dirs(bootstrap)
+                .iter()
+                .map(|p| p.display().to_string()),
+        )
         .map(|dir| format!("fish_add_path \"{}\"\n", dir))
         .collect();
 
@@ -145,7 +157,11 @@ set -gx SCHALENTIER_DATA_DIR "{data_dir}"
 }
 
 /// Generate the appropriate environment script for a shell type
-pub fn generate_env_script(shell: ShellType, data_dir: &Path, bootstrap: &BootstrapState) -> String {
+pub fn generate_env_script(
+    shell: ShellType,
+    data_dir: &Path,
+    bootstrap: &BootstrapState,
+) -> String {
     match shell {
         ShellType::Bash | ShellType::Zsh => generate_bash_env(data_dir, bootstrap),
         ShellType::Fish => generate_fish_env(data_dir, bootstrap),
@@ -232,7 +248,10 @@ pub fn is_sourced(rc_path: &Path, data_dir: &Path, shell: ShellType) -> bool {
 /// if it doesn't exist. No-op if already sourced (checked via [`is_sourced`]).
 pub fn ensure_sourced(rc_path: &Path, data_dir: &Path, shell: ShellType) -> Result<()> {
     if is_sourced(rc_path, data_dir, shell) {
-        debug!("{} already sources schalentier's env file", rc_path.display());
+        debug!(
+            "{} already sources schalentier's env file",
+            rc_path.display()
+        );
         return Ok(());
     }
 
@@ -245,7 +264,11 @@ pub fn ensure_sourced(rc_path: &Path, data_dir: &Path, shell: ShellType) -> Resu
 
     let existing = std::fs::read_to_string(rc_path).unwrap_or_default();
     let snippet = shell_init_snippet(shell, data_dir);
-    let separator = if existing.is_empty() || existing.ends_with('\n') { "" } else { "\n" };
+    let separator = if existing.is_empty() || existing.ends_with('\n') {
+        ""
+    } else {
+        "\n"
+    };
     let updated = format!("{existing}{separator}\n{snippet}\n");
 
     std::fs::write(rc_path, updated)

@@ -111,7 +111,9 @@ fn toml_to_jinja(value: &toml::Value) -> JinjaValue {
         toml::Value::Integer(i) => JinjaValue::from(*i),
         toml::Value::Float(f) => JinjaValue::from(*f),
         toml::Value::Boolean(b) => JinjaValue::from(*b),
-        toml::Value::Array(arr) => JinjaValue::from(arr.iter().map(toml_to_jinja).collect::<Vec<_>>()),
+        toml::Value::Array(arr) => {
+            JinjaValue::from(arr.iter().map(toml_to_jinja).collect::<Vec<_>>())
+        }
         toml::Value::Table(table) => {
             let map: HashMap<String, JinjaValue> = table
                 .iter()
@@ -221,7 +223,11 @@ fn levenshtein_distance_1(a: &str, b: &str) -> bool {
         return true;
     }
     let (a, b): (Vec<char>, Vec<char>) = (a.chars().collect(), b.chars().collect());
-    let (short, long) = if a.len() <= b.len() { (&a, &b) } else { (&b, &a) };
+    let (short, long) = if a.len() <= b.len() {
+        (&a, &b)
+    } else {
+        (&b, &a)
+    };
     if long.len() - short.len() > 1 {
         return false;
     }
@@ -348,7 +354,10 @@ mod tests {
     #[test]
     fn test_non_templated_string_passthrough() {
         let ctx = test_context();
-        assert_eq!(render("plain text, no braces", &ctx).unwrap(), "plain text, no braces");
+        assert_eq!(
+            render("plain text, no braces", &ctx).unwrap(),
+            "plain text, no braces"
+        );
     }
 
     #[test]

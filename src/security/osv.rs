@@ -49,9 +49,10 @@ impl OsvVuln {
         } else {
             "(no description provided)".to_string()
         };
-        let url = self.url.clone().unwrap_or_else(|| {
-            format!("https://osv.dev/vulnerability/{}", self.id)
-        });
+        let url = self
+            .url
+            .clone()
+            .unwrap_or_else(|| format!("https://osv.dev/vulnerability/{}", self.id));
 
         format!(
             "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\
@@ -291,7 +292,10 @@ mod tests {
 
     #[test]
     fn ecosystem_mapping() {
-        assert_eq!(OsvAuditor::ecosystem_for_provider("cargo"), Some("crates.io"));
+        assert_eq!(
+            OsvAuditor::ecosystem_for_provider("cargo"),
+            Some("crates.io")
+        );
         assert_eq!(OsvAuditor::ecosystem_for_provider("uv"), Some("PyPI"));
         assert_eq!(OsvAuditor::ecosystem_for_provider("pnpm"), Some("npm"));
         assert_eq!(OsvAuditor::ecosystem_for_provider("go"), Some("Go"));
@@ -328,7 +332,12 @@ mod tests {
             }]
         }"#;
         let parsed: OsvQueryResponse = serde_json::from_str(json).unwrap();
-        let vuln = parsed.vulns.into_iter().next().unwrap().normalize("PyPI", "example");
+        let vuln = parsed
+            .vulns
+            .into_iter()
+            .next()
+            .unwrap()
+            .normalize("PyPI", "example");
         assert_eq!(vuln.id, "GHSA-xxxx");
         assert_eq!(vuln.severity, "high");
         assert!(vuln.is_critical());

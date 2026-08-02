@@ -27,7 +27,7 @@ clap_complete = "4"
 tokio = { version = "1", features = ["full"] }
 
 # Error handling
-anyhow = "1"
+anyhow = "1.0.103"
 thiserror = "2"
 
 # Logging
@@ -43,7 +43,7 @@ toml = "1.1"
 # HTTP client (for downloads) - using rustls with platform verifier
 # Uses webpki roots as fallback - works in minimal containers without CA packages
 # The rustls-platform-verifier feature enables bundled certificates as fallback
-reqwest = { version = "0.13", default-features = false, features = ["json", "rustls", "http2", "charset"] }
+reqwest = { version = "0.13.4", default-features = false, features = ["json", "rustls", "http2", "charset"] }
 
 # Async utilities
 async-trait = "0.1"
@@ -68,8 +68,8 @@ which = "8"
 # Secrets management: age encryption (passphrase-based) + OS keyring for the master password.
 # When no native OS keyring/Secret Service is available (e.g. CI, containers, headless
 # Linux), the master password falls back to a small age-encrypted flat file instead.
-age = { version = "0.11.3", features = ["armor"] }
-keyring = "4.1.4"
+age = { version = "0.12.1", features = ["armor"] }
+keyring = "4.1.6"
 rand = "0.9"
 hex = "0.4"
 minijinja = "2.21.0"

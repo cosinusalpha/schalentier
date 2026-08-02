@@ -511,9 +511,9 @@ impl Installer for BinaryProvider {
             .output();
 
         match output {
-            Ok(o) if o.status.success() => {
-                Ok(parse_version_from_output(&String::from_utf8_lossy(&o.stdout)))
-            }
+            Ok(o) if o.status.success() => Ok(parse_version_from_output(&String::from_utf8_lossy(
+                &o.stdout,
+            ))),
             _ => Ok(None),
         }
     }
@@ -541,10 +541,22 @@ mod tests {
 
     #[test]
     fn test_parse_version_from_output() {
-        assert_eq!(parse_version_from_output("ripgrep 14.1.1"), Some("14.1.1".to_string()));
-        assert_eq!(parse_version_from_output("tool version 1.2.3"), Some("1.2.3".to_string()));
-        assert_eq!(parse_version_from_output("fd v10.0.0"), Some("v10.0.0".to_string()));
-        assert_eq!(parse_version_from_output("bat 0.24.0,"), Some("0.24.0".to_string()));
+        assert_eq!(
+            parse_version_from_output("ripgrep 14.1.1"),
+            Some("14.1.1".to_string())
+        );
+        assert_eq!(
+            parse_version_from_output("tool version 1.2.3"),
+            Some("1.2.3".to_string())
+        );
+        assert_eq!(
+            parse_version_from_output("fd v10.0.0"),
+            Some("v10.0.0".to_string())
+        );
+        assert_eq!(
+            parse_version_from_output("bat 0.24.0,"),
+            Some("0.24.0".to_string())
+        );
         assert_eq!(parse_version_from_output("no version here"), None);
         assert_eq!(parse_version_from_output(""), None);
     }

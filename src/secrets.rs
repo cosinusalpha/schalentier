@@ -100,7 +100,9 @@ fn open_password_store() -> Result<PasswordStore> {
         Ok(entry) => Ok(PasswordStore::Native(entry)),
         Err(_) => {
             debug!("Native OS keyring unavailable, falling back to local encrypted file store");
-            Ok(PasswordStore::Fallback(FallbackStore::open_at(&default_data_dir()?)?))
+            Ok(PasswordStore::Fallback(FallbackStore::open_at(
+                &default_data_dir()?,
+            )?))
         }
     }
 }
@@ -187,7 +189,10 @@ pub const MASTER_PASSWORD_ENV: &str = "SCHALENTIER_MASTER_PASSWORD";
 pub fn get_or_create_master_password() -> Result<SecretString> {
     if let Ok(password) = std::env::var(MASTER_PASSWORD_ENV) {
         if !password.is_empty() {
-            debug!("Master password loaded from {} env var", MASTER_PASSWORD_ENV);
+            debug!(
+                "Master password loaded from {} env var",
+                MASTER_PASSWORD_ENV
+            );
             return Ok(SecretString::from(password));
         }
     }
@@ -246,7 +251,10 @@ pub fn set_master_password(password: &str) -> Result<()> {
 /// doesn't exist yet.
 pub fn load_store(path: &Path, password: &SecretString) -> Result<SecretStore> {
     if !path.exists() {
-        debug!("Secrets file not found at {}, using empty store", path.display());
+        debug!(
+            "Secrets file not found at {}, using empty store",
+            path.display()
+        );
         return Ok(SecretStore::default());
     }
 
@@ -290,10 +298,7 @@ fn set_secrets_file_permissions(path: &Path) -> Result<()> {
 
 /// Resolve the environment variables for a scoped set of secrets (used by `secret shell`
 /// and `secret run`). `None` (no tag filter) returns every secret.
-pub fn resolve_scoped_env(
-    store: &SecretStore,
-    tags: Option<&[String]>,
-) -> Vec<(String, String)> {
+pub fn resolve_scoped_env(store: &SecretStore, tags: Option<&[String]>) -> Vec<(String, String)> {
     store
         .filter_by_tags(tags)
         .into_iter()
@@ -395,7 +400,8 @@ mod tests {
     fn test_filter_by_tags_or_semantics() {
         let store = sample_store();
 
-        let work_or_personal = store.filter_by_tags(Some(&["work".to_string(), "personal".to_string()]));
+        let work_or_personal =
+            store.filter_by_tags(Some(&["work".to_string(), "personal".to_string()]));
         assert_eq!(work_or_personal.len(), 2);
 
         let ci_only = store.filter_by_tags(Some(&["ci".to_string()]));
@@ -418,7 +424,10 @@ mod tests {
         let store = sample_store();
         let mut env = resolve_scoped_env(&store, Some(&["work".to_string()]));
         env.sort();
-        assert_eq!(env, vec![("GITHUB_TOKEN".to_string(), "ghp_xxx".to_string())]);
+        assert_eq!(
+            env,
+            vec![("GITHUB_TOKEN".to_string(), "ghp_xxx".to_string())]
+        );
     }
 
     #[test]
@@ -454,7 +463,10 @@ mod tests {
         assert!(store.get_password().unwrap().is_none());
 
         store.set_password("super-secret-password").unwrap();
-        assert_eq!(store.get_password().unwrap().unwrap(), "super-secret-password");
+        assert_eq!(
+            store.get_password().unwrap().unwrap(),
+            "super-secret-password"
+        );
     }
 
     #[test]
@@ -484,6 +496,9 @@ mod tests {
 
         let metadata = std::fs::metadata(&key_path).unwrap();
         let mode = metadata.permissions().mode() & 0o777;
-        assert_eq!(mode, 0o600, "Fallback key file should have 0600 permissions");
+        assert_eq!(
+            mode, 0o600,
+            "Fallback key file should have 0600 permissions"
+        );
     }
 }

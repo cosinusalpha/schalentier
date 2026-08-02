@@ -126,9 +126,7 @@ impl DotfileManager {
                     .and_then(|v| v.as_str())
                     .map(String::from);
                 let content = match (&content, is_templated) {
-                    (Some(c), true) => {
-                        Some(render_templated(c, ctx, path_str)?)
-                    }
+                    (Some(c), true) => Some(render_templated(c, ctx, path_str)?),
                     _ => content,
                 };
 
@@ -530,7 +528,11 @@ fn merge_keyvalue(current: Option<&str>, settings: &TomlValue) -> Result<String>
 
 /// Render a single string through the template engine, if a context is available.
 /// Errors are annotated with the dotfile path they occurred in.
-fn render_templated(text: &str, ctx: Option<&TemplateContext>, dotfile_path: &str) -> Result<String> {
+fn render_templated(
+    text: &str,
+    ctx: Option<&TemplateContext>,
+    dotfile_path: &str,
+) -> Result<String> {
     let Some(ctx) = ctx else {
         return Ok(text.to_string());
     };
@@ -556,7 +558,10 @@ fn render_templated_toml_value(
         TomlValue::Table(table) => {
             let mut rendered = toml::map::Map::new();
             for (k, v) in table {
-                rendered.insert(k.clone(), render_templated_toml_value(v, ctx, dotfile_path)?);
+                rendered.insert(
+                    k.clone(),
+                    render_templated_toml_value(v, ctx, dotfile_path)?,
+                );
             }
             Ok(TomlValue::Table(rendered))
         }

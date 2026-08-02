@@ -80,7 +80,11 @@ impl AuditCache {
                     let _ = std::fs::create_dir_all(parent);
                 }
                 if let Err(e) = std::fs::write(&self.path, json) {
-                    debug!("Failed to write audit cache to {}: {}", self.path.display(), e);
+                    debug!(
+                        "Failed to write audit cache to {}: {}",
+                        self.path.display(),
+                        e
+                    );
                 }
             }
             Err(e) => debug!("Failed to serialize audit cache: {}", e),
@@ -161,6 +165,9 @@ mod tests {
     #[test]
     fn cache_key_uses_star_for_no_version() {
         assert_eq!(cache_key("PyPI", "black", None), "PyPI:black:*");
-        assert_eq!(cache_key("PyPI", "black", Some("21.12b0")), "PyPI:black:21.12b0");
+        assert_eq!(
+            cache_key("PyPI", "black", Some("21.12b0")),
+            "PyPI:black:21.12b0"
+        );
     }
 }

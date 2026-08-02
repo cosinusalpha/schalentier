@@ -473,8 +473,7 @@ impl Bootstrap {
                     // didn't install anything there, so the generated env script must
                     // not later assume it owns a Miniforge install at conda_dir and try
                     // to source a hook file that doesn't exist.
-                    state.bootstrap.conda_path =
-                        Some(path.parent().unwrap_or(&path).to_path_buf());
+                    state.bootstrap.conda_path = Some(path.parent().unwrap_or(&path).to_path_buf());
                     return Ok(());
                 }
             }
@@ -492,10 +491,7 @@ impl Bootstrap {
         // Run installer in batch mode
         {
             use std::os::unix::fs::PermissionsExt;
-            std::fs::set_permissions(
-                &installer_path,
-                std::fs::Permissions::from_mode(0o755),
-            )?;
+            std::fs::set_permissions(&installer_path, std::fs::Permissions::from_mode(0o755))?;
         }
 
         info!("Running Miniforge installer in batch mode...");
@@ -562,7 +558,8 @@ impl Bootstrap {
                     );
                     state.bootstrap.rust_installed = true;
                     if let Ok(cargo_path) = which::which("cargo") {
-                        state.bootstrap.rust_path = Some(cargo_path.parent().unwrap().to_path_buf());
+                        state.bootstrap.rust_path =
+                            Some(cargo_path.parent().unwrap().to_path_buf());
                     }
                     return Ok(());
                 }
@@ -642,10 +639,7 @@ impl Bootstrap {
     async fn install_nodejs(&self, state: &mut LocalState) -> Result<()> {
         // Check if Node.js is already available in PATH
         if let Ok(path) = which::which("node") {
-            if let Ok(output) = std::process::Command::new("node")
-                .arg("--version")
-                .output()
-            {
+            if let Ok(output) = std::process::Command::new("node").arg("--version").output() {
                 if output.status.success() {
                     let version = String::from_utf8_lossy(&output.stdout).trim().to_string();
                     info!(
@@ -688,7 +682,9 @@ impl Bootstrap {
             .first()
             .and_then(|p| p.parent())
             .ok_or_else(|| {
-                SchalentierError::BootstrapFailed("Could not find extracted Node.js directory".to_string())
+                SchalentierError::BootstrapFailed(
+                    "Could not find extracted Node.js directory".to_string(),
+                )
             })?;
 
         // Move contents to node_dir
@@ -767,7 +763,9 @@ impl Bootstrap {
             })
             .or_else(|| extracted_files.first())
             .ok_or_else(|| {
-                SchalentierError::BootstrapFailed("Could not find extracted Go directory".to_string())
+                SchalentierError::BootstrapFailed(
+                    "Could not find extracted Go directory".to_string(),
+                )
             })?;
 
         // Remove existing go_dir if it exists
