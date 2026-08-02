@@ -1,657 +1,285 @@
 # Schalentier 🦐
 
-> *German: Schalentier [ˈʃaːlənˌtiːɐ̯] — "shellfish", literally "shell animal"*
+> German: *Schalentier* [ˈʃaːlənˌtiːɐ̯] — “shellfish”, literally “shell animal”
 
-**Your tools. Your configs. Every machine. One file.**
+**Your tools and configuration, reproducible from one TOML file.**
 
-Define your entire environment in a single TOML file — tools to install, configs to patch, shell customizations — then sync it across all your machines with Git.
+Schalentier is a cross-platform CLI for installing development tools, patching
+dotfiles, and syncing the result between machines. It can:
 
-```toml
-# ~/.config/schalentier/schalentier.toml
+- install tools through GitHub releases, Go, Cargo, Homebrew, Conda, uv, or the
+  system package manager;
+- fall back to another available provider when an installation fails;
+- merge JSON, TOML, YAML, INI, and `KEY=value` configuration without replacing
+  unrelated settings;
+- render dotfiles with machine information, variables, environment values, and
+  encrypted secrets;
+- sync its configuration through Git or an encrypted GitHub Gist;
+- manage shell aliases, initialization snippets, and completions;
+- check supported package ecosystems for known vulnerabilities through OSV.dev.
 
-[tools]
-ripgrep = {}
-bat = { provider = "cargo" }
-python = { provider = "conda", version = "3.12" }
+## Install
 
-[dotfiles."~/.gitconfig".user]
-name = "Ada Lovelace"
-email = "ada@example.com"
-
-[dotfiles."~/.config/micro/settings.json"]
-colorscheme = "dracula"
-tabsize = 4
-```
-
-```bash
-# New laptop? One command.
-$ schalentier sync --remote git@github.com:ada/dotfiles.git --pull
-
-⠋ Pulling from git@github.com:ada/dotfiles.git...
-✓ Pull completed
-✓ Installed 'ripgrep' v14.1.1 via binary
-✓ Installed 'bat' v0.24.0 via cargo
-✓ Installed 'python' v3.12 via conda
-✓ Applied 2 config patches
-✓ Sync complete!
-```
-
-No more "works on my machine." No more 47-step setup guides.
-
----
-
-## Why Another Tool?
-
-| Tool            | Installs CLI tools | Syncs configs | Patches files | Git sync |
-|-----------------|:------------------:|:-------------:|:-------------:|:--------:|
-| **chezmoi**     |         ❌          |       ✅       |       ✅       |    ✅     |
-| **yadm**        |         ❌          |       ✅       |       ❌       |    ✅     |
-| **mise/asdf**   |    ✅ (runtimes)    |       ❌       |       ❌       |    ❌     |
-| **aqua**        |         ✅          |       ❌       |       ❌       |    ❌     |
-| **Homebrew**    |         ✅          |       ❌       |       ❌       |    ❌     |
-| **Schalentier** |         ✅          |       ✅       |       ✅       |    ✅     |
-
-**chezmoi** and **yadm** are great for dotfiles, but they won't install your tools.
-**mise** and **aqua** install tools, but won't manage your configs.
-**Schalentier** does both — one file, one binary, done.
-
----
-
-## Quick Start
-
-### Install
+On Linux or macOS:
 
 ```bash
-# Install via Cargo (requires Rust toolchain)
+curl -fsSL https://raw.githubusercontent.com/cosinusalpha/schalentier/main/install.sh | sh
+```
+
+The installer downloads the latest release to `~/.local/bin` and runs
+`schalentier init`. Set `SCHALENTIER_NO_INIT=1` to skip initialization, or
+`SCHALENTIER_INSTALL_DIR` to choose another destination.
+
+With Rust installed:
+
+```bash
 cargo install schalentier
-
-# One-liner install script (Linux/macOS)
-curl -fsSL https://raw.githubusercontent.com/cosinusalpha/schalentier/main/install.sh | bash
-
-# Or download the binary directly
-# Linux (static musl binary - works everywhere)
-curl -LO https://github.com/cosinusalpha/schalentier/releases/latest/download/schalentier-linux-x86_64
-chmod +x schalentier-linux-x86_64 && sudo mv schalentier-linux-x86_64 /usr/local/bin/schalentier
 ```
 
-### Initialize
+To build this checkout instead:
 
 ```bash
-$ schalentier init
-
-Welcome to schalentier!
-
-═══════════════════════════════════System Tools Detected
-
-✓ apt (Debian/Ubuntu) (apt 3.2.0 (amd64))
-✗ uv
-✗ conda
-✗ brew
-✗ cargo
-✗ rust
-✗ node
-✗ go
-
-? Which package managers should be bootstrapped?
-> [x] uv - Fast Python package installer (recommended for Python CLI tools)
-  [x] Miniforge/Conda - Scientific packages and isolated environments
-  [x] Rust (rustup) - Rust toolchain and cargo package manager
-  [x] Node.js - JavaScript runtime and npm package manager
-  [x] Go - Go toolchain for building and installing Go CLI tools
-
-? Proceed with installation? Yes
-
-✓ Initialization complete!
-
-? Add schalentier's environment setup to your shell config now? Yes
-? Shell config file to update: /home/user/.bashrc
-✓ Added schalentier setup to /home/user/.bashrc
+cargo install --path .
 ```
 
-#### Bootstrapped Tools
+## Quick start
 
-Schalentier can bootstrap these development toolchains:
-
-| Tool | Description | Binary Location |
-|------|-------------|-----------------|
-| **uv** | Fast Python package installer | `~/.schalentier/bin/uv` |
-| **Miniforge** | Conda distribution for scientific computing | `~/.schalentier/conda/` |
-| **Rust** | Rust toolchain via rustup | `~/.schalentier/.cargo/` |
-| **Node.js** | JavaScript runtime (current: v26.5.0) | `~/.schalentier/node/` |
-| **Go** | Go programming language (v1.22.5) | `~/.schalentier/go/` |
-
-All bootstrapped tools are managed under `~/.schalentier/` for easy cleanup and isolation.
-
-### Add Your First Tool
+Initialize Schalentier and optionally bootstrap isolated copies of uv,
+Miniforge, Rust, Node.js, and Go under `~/.schalentier/`:
 
 ```bash
-# Install ripgrep (tries GitHub releases first, falls back to other providers)
-$ schalentier add ripgrep
-
-# Install from a specific provider
-$ schalentier add python --provider conda
-
-# Just add to config, don't install yet
-$ schalentier add neovim --no-install
+schalentier init
 ```
 
-### Sync Across Machines
+Add and manage tools:
 
 ```bash
-# First machine: push your setup
-$ schalentier sync --remote git@github.com:you/dotfiles.git --push
-
-# Second machine: pull and install everything
-$ schalentier sync --pull
+schalentier add ripgrep
+schalentier add bat --provider cargo
+schalentier add python --provider conda
+schalentier list --detailed
+schalentier update
 ```
 
-#### GitHub Gist Sync (Encrypted)
+Preview operations with `--dry-run` where supported. Run
+`schalentier <command> --help` for every option.
 
-Schalentier can sync your configuration via encrypted GitHub Gists - perfect for personal dotfiles without managing a git repository:
+### Installation locations
 
-```bash
-# Store GitHub token in encrypted secrets
-$ schalentier secret set GITHUB_TOKEN --tags github
-Value: ****
-✓ Secret 'GITHUB_TOKEN' saved
+These are the default locations used by Schalentier itself:
 
-# Create new encrypted gist and push config
-$ schalentier sync --remote gist://new --push
-✓ Created secret gist: gist://abc123def456
-✓ Config pushed successfully
+| Installed item | Default location |
+| --- | --- |
+| Schalentier from `install.sh` | `$HOME/.local/bin/schalentier` |
+| Prebuilt tools from the `binary` provider | `$HOME/.schalentier/bin/` |
+| Bootstrapped uv | `$HOME/.schalentier/bin/uv` |
+| Bootstrapped Miniforge | `$HOME/.schalentier/conda/` |
+| Bootstrapped Rust/Cargo | `$HOME/.schalentier/.cargo/` and `$HOME/.schalentier/rustup/` |
+| Bootstrapped Node.js | `$HOME/.schalentier/node/` |
+| Bootstrapped Go | `$HOME/.schalentier/go/` |
 
-# Add the gist ID to your config (edit ~/.config/schalentier/schalentier.toml)
-# [sync]
-# remote = "gist://abc123def456"
-
-# Pull on another machine
-$ schalentier sync --pull
-✓ Downloaded encrypted gist
-✓ Decrypted with master password
-✓ Installed 5 tools
-```
-
-**Public vs Secret Gists:**
-
-```bash
-# Create a public gist (visible on your profile)
-$ schalentier sync --push --remote gist://new --public
-
-# Create a secret gist (default - unlisted, requires URL)
-$ schalentier sync --push --remote gist://new --secret
-
-# Or set default in config
-[sync]
-remote = "gist://abc123def456"
-gist_public = false  # true = public, false = secret (default)
-```
-
-**Security:** All gist content is encrypted with age encryption using the same master password stored in your OS keyring. GitHub never sees your plaintext configuration - only encrypted ciphertext.
-
----
+When Schalentier bootstraps Go, Go packages are routed to
+`$HOME/.schalentier/bin/`; bootstrapped Cargo packages go to
+`$HOME/.schalentier/.cargo/bin/`. Existing system toolchains keep their native
+locations: Cargo normally uses `$HOME/.cargo/bin/`, Go follows `GOBIN`, then
+`GOPATH/bin`, then `$HOME/go/bin/`, and uv controls its tool directory (normally
+`$HOME/.local/bin/`). Homebrew and system-provider packages remain managed by
+their respective package managers.
 
 ## Configuration
 
-Schalentier uses a single TOML file: `~/.config/schalentier/schalentier.toml`
+The default configuration is `$HOME/.config/schalentier/schalentier.toml`.
+Schalentier resolves its main config in this order:
 
-### Full Example
+1. `./schalentier.toml`;
+2. `$HOME/.config/schalentier/schalentier.toml`;
+3. the legacy `$HOME/schalentier.toml` location.
+
+For `sync`, `update`, `doctor`, `list`, `audit`, and config apply/diff operations,
+the nearest `.schalentier/config.toml` found between the working directory and
+the home directory is merged over the main config.
 
 ```toml
-# =============================================================================
-# SCHALENTIER CONFIGURATION
-# =============================================================================
-
 [settings]
-# Provider priority (first available wins)
 provider_priority = ["binary", "go", "cargo", "brew", "conda", "uv", "system"]
-
-# Auto-update tools on sync
 auto_update = false
-
-# How long a cached `audit` result (OSV.dev) stays valid before it's re-queried
 audit_cache_ttl_hours = 24
 
-[sync]
-# Sync remote: git repository or GitHub Gist
-# Git repository:
-remote = "git@github.com:yourname/dotfiles.git"
-# GitHub Gist (encrypted):
-# remote = "gist://abc123def456"
+[tools]
+ripgrep = {}
+bat = { provider = "cargo", version = "0.24.0" }
+python = { provider = "conda", version = "3.12" }
 
-# Sync mode: manual, pull, push, bidirectional
-mode = "manual"
+[variables]
+email = "ada@example.com"
 
-# For gist:// remotes: create as public (false = secret/private)
-gist_public = false
+[dotfiles."~/.gitconfig".user]
+_template = true
+name = "Ada Lovelace"
+email = "{{ var.email }}"
 
-# =============================================================================
-# TOOLS
-# =============================================================================
-# Each tool can specify:
-#   - provider: force a specific provider (optional)
-#   - version: version constraint (optional)
-#   - options: provider-specific options (optional)
-
-[tools.ripgrep]
-# No config = use provider priority, latest version
-
-[tools.fd]
-provider = "cargo"  # Force install via cargo
-
-[tools.bat]
-version = "0.24.0"  # Pin to specific version
-
-[tools.python]
-provider = "conda"
-version = "3.12"
-
-[tools.ruff]
-provider = "uv"  # Python linter via uv tool
-
-[tools.lazygit]
-provider = "go"  # Go CLI tool via go install
-
-[tools.jq]
-provider = "binary"  # GitHub releases
-
-[tools.htop]
-provider = "system"  # apt/pacman/dnf
-
-# =============================================================================
-# DOTFILES (Config Patching)
-# =============================================================================
-# Schalentier intelligently merges your settings into existing config files.
-# It detects the format from the file extension and preserves existing values.
-#
-# Supported formats:
-#   - JSON (.json) - deep merge
-#   - TOML (.toml) - deep merge
-#   - YAML (.yaml, .yml) - deep merge
-#   - INI (.ini, .gitconfig, .cfg) - section-aware merge
-#   - KeyValue (.env, KEY=VALUE style) - key-aware merge
-#   - Unknown - replace mode (use _content key)
-
-[dotfiles]
-
-# --- JSON Example: micro editor ---
 [dotfiles."~/.config/micro/settings.json"]
 colorscheme = "dracula"
 tabsize = 4
-tabstospaces = true
-autoclose = true
-# These get merged into the JSON file, preserving any other settings you have
 
-# --- TOML Example: starship prompt ---
-[dotfiles."~/.config/starship.toml"]
-add_newline = false
-
-[dotfiles."~/.config/starship.toml".character]
-success_symbol = "[➜](bold green)"
-error_symbol = "[✗](bold red)"
-
-[dotfiles."~/.config/starship.toml".git_branch]
-symbol = "🌱 "
-
-# --- INI Example: git config ---
-[dotfiles."~/.gitconfig"]
-[dotfiles."~/.gitconfig".user]
-name = "Your Name"
-email = "you@example.com"
-
-[dotfiles."~/.gitconfig".core]
-editor = "micro"
-autocrlf = "input"
-
-[dotfiles."~/.gitconfig".alias]
-co = "checkout"
-br = "branch"
-st = "status"
-lg = "log --oneline --graph"
-
-# --- KeyValue Example: environment ---
-[dotfiles."~/.config/schalentier/env.local"]
-EDITOR = "micro"
-PAGER = "less -R"
-MANPAGER = "sh -c 'col -bx | bat -l man -p'"
-
-# --- Unknown Format: use _content for complete replacement ---
-[dotfiles."~/.vimrc"]
-_content = """
-set number
-set relativenumber
-set tabstop=4
-set shiftwidth=4
-set expandtab
-set autoindent
-syntax on
-colorscheme desert
-"""
+[sync]
+remote = "git@github.com:ada/dotfiles.git"
+mode = "manual"
 ```
 
-### Templating & Variables
+Each tool accepts an optional `provider`, `version`, and provider-specific
+`options` table. A fixed version is skipped by `schalentier update` unless
+`--force` is used; omit the version or use `latest` to track updates.
 
-Dotfiles can be rendered as [Jinja2](https://jinja.palletsprojects.com/) templates
-(via minijinja). Set `_template = true` on a dotfile entry to enable rendering. Available
-context: `{{ os }}`, `{{ arch }}`, `{{ hostname }}`, `{{ username }}`, `{{ home }}`,
-`{{ env.VAR }}`, `{{ secret.NAME }}` (from your encrypted secrets), and `{{ var.NAME }}`
-(from the `[variables]` section below).
-
-```toml
-[variables]
-work_email = "ada@company.com"
-default_editor = "nvim"
-
-# Nested variables → {{ var.work.email }}
-[variables.work]
-email = "ada@company.com"
-name = "Ada Lovelace (Company)"
-
-[dotfiles."~/.gitconfig".user]
-_template = true
-name = "{{ var.work.name }}"
-email = "{% if hostname == 'work-laptop' %}{{ var.work_email }}{% else %}ada@personal.dev{% endif %}"
-
-[dotfiles."~/.config/gh/hosts.yml"."github.com"]
-_template = true
-oauth_token = "{{ secret.GITHUB_TOKEN }}"
-```
-
-### Package Aliases
-
-Define custom packages or override registry entries with `[aliases]`. Each alias maps
-provider names to provider-specific package names.
-
-```toml
-[aliases.my-internal-tool]
-description = "Company internal tool"
-
-[aliases.my-internal-tool.providers.pnpm]
-name = "@mycompany/internal-tool"
-```
-
----
-
-## Commands Reference
-
-### Core Commands
-
-```bash
-schalentier init [--yes] [--force] [--skip-bootstrap] [--setup-shell]  # Initialize schalentier
-schalentier add <tool> [--provider X] [--dry-run]      # Add and install a tool
-schalentier remove <tool> [--keep-installed]           # Remove a tool
-schalentier list [--detailed] [--provider X] [--security]  # List managed tools
-schalentier search <query> [--limit N] [--provider X]  # Search across all providers
-schalentier update [tool] [--dry-run] [--force]        # Check/apply updates
-schalentier doctor [--fix]                             # Diagnose issues
-schalentier audit [package] [--refresh]                # Security audit (via OSV.dev)
-```
-
-> **Security audit:** `audit` (and the pre-install check) queries the
-> [OSV.dev](https://osv.dev) vulnerability database, covering the crates.io (cargo),
-> PyPI (uv), npm (npm/pnpm/yarn), and Go ecosystems. Tools installed as prebuilt
-> binaries or via system/brew have no queryable ecosystem and are skipped. When an
-> installed version is known, the audit narrows results to advisories affecting it.
-> Results are cached (`~/.schalentier/osv_cache.json`, TTL configurable via
-> `audit_cache_ttl_hours`, default 24h) so repeated `audit`/`add` calls don't hammer
-> OSV.dev; pass `--refresh` to bypass the cache. `list --security` shows each tool's
-> cached status without any network call — run `audit` first to populate it.
->
-> **Update pinning:** a tool pinned to a specific version in `schalentier.toml`
-> (`[tools.<name>] version = "1.2.3"`) is skipped by `update` unless `--force` is
-> passed; `version = "latest"` (or omitting it) means always update.
-
-### Sync Commands
-
-```bash
-schalentier sync                      # Bidirectional sync
-schalentier sync --push               # Push local changes
-schalentier sync --pull               # Pull and install
-schalentier sync --prune              # Remove orphaned tools
-schalentier sync --remote <url>       # Set/use specific remote
-```
-
-### Config Patching
-
-```bash
-schalentier config list               # Show configured dotfiles
-schalentier config diff               # Preview changes
-schalentier config apply              # Apply all patches
-schalentier config reset <file>       # Restore from backup
-```
-
-### Shell Integration
-
-```bash
-schalentier alias 'll=ls -la'         # Create alias
-schalentier alias --list              # List aliases
-schalentier alias --remove ll         # Remove alias
-
-schalentier snippet add yazi          # Add shell snippet
-schalentier snippet list              # List snippets
-schalentier snippet remove yazi       # Remove snippet
-```
-
-### Secrets (encrypted, age + system keyring)
-
-```bash
-schalentier secret set <NAME> [--value V] [--tags a,b] [--global]  # Store a secret
-schalentier secret get <NAME>                    # Print value to stdout
-schalentier secret list [--tags a,b]             # List secret names
-schalentier secret delete <NAME> [--global]      # Remove a secret
-schalentier secret export [--shell bash|fish] [--tags a,b]  # Emit export statements
-schalentier secret edit                          # Decrypt → $EDITOR → re-encrypt
-schalentier secret change-password               # Re-encrypt with new password
-schalentier secret shell [--tags a,b]            # Spawn shell with secrets in env
-schalentier secret run [--tags a,b] -- <cmd>     # Run command with secrets in env
-```
-
-### Registry
-
-```bash
-schalentier registry validate         # Check registry format
-schalentier registry info             # Show package statistics
-schalentier registry update           # Download latest registry from GitHub
-```
-
-### Shell Completions
-
-```bash
-schalentier completions <bash|zsh|fish|powershell|elvish>  # Generate completion script
-```
-
----
+Custom package names and provider mappings can be added under `[aliases]`. See
+[`registry/README.md`](registry/README.md) for the provider mapping format.
 
 ## Providers
 
-Schalentier searches multiple sources to install your tools:
+| Provider | Source | Typical use |
+| --- | --- | --- |
+| `binary` | GitHub Releases | Prebuilt CLI binaries |
+| `go` | Go modules | Go command-line tools |
+| `cargo` | crates.io | Rust command-line tools |
+| `brew` | Homebrew/Linuxbrew | General packages |
+| `conda` | conda-forge | Python and scientific packages |
+| `uv` | PyPI | Isolated Python CLI tools |
+| `system` | apt, pacman, dnf, and others | OS packages; may require sudo |
 
-| Provider | Source             | Best for         | Notes                                        |
-|----------|--------------------|------------------|----------------------------------------------|
-| `binary` | GitHub Releases    | Most CLI tools   | Fast, no dependencies, auto-detects platform |
-| `go`     | Go modules         | Go CLI tools     | Fast, static binaries, `go install`          |
-| `cargo`  | crates.io          | Rust tools       | Builds from source, needs rustc              |
-| `brew`   | Homebrew/Linuxbrew | macOS packages   | Cross-platform, large catalog                |
-| `conda`  | conda-forge        | Scientific tools | Python/R/Julia ecosystem                     |
-| `uv`     | PyPI               | Python CLIs      | Fast, isolated Python tools                  |
-| `system` | apt/pacman/dnf     | System packages  | May need sudo                                |
+Only providers available on the current machine are registered. The binary
+provider is always available, and Schalentier uses the configured priority when
+a tool exists in more than one provider.
 
-### Provider Fallback
+## Dotfiles and templates
 
-If your preferred provider fails, schalentier automatically tries the next one:
-
-```bash
-$ schalentier add some-tool --provider cargo
-# If cargo fails (not installed, build error, etc.):
-ℹ Note: Preferred provider Cargo unavailable, used Binary instead
-✓ Installed 'some-tool' v1.0.0 via binary
-```
-
----
-
-## Search Results
-
-Search aggregates results from all providers and clusters by package:
-
-```bash
-$ schalentier search ripgrep
-
-Found 3 unique packages:
-
-  ripgrep
-    Available from: Binary v14.1.1, Cargo v14.1.1, Conda v14.1.0
-    A fast line-oriented search tool
-
-  ripgrep-all
-    Available from: Cargo v1.0.0
-    ripgrep, but also search in PDFs, E-Books, Office documents...
-```
-
----
-
-## Dotfile Patching Deep Dive
-
-Unlike tools that replace entire files, schalentier **merges** your settings:
-
-### Before (your existing config)
-
-```json
-{
-  "colorscheme": "default",
-  "font_size": 14,
-  "custom_setting": "preserved"
-}
-```
-
-### Your schalentier.toml
+Use `schalentier config diff` to preview changes and
+`schalentier config apply` to apply them. Schalentier deep-merges JSON, TOML,
+and YAML, performs section-aware INI merges, and updates key/value files by key.
+Unknown formats can be replaced explicitly with `_content`:
 
 ```toml
-[dotfiles."~/.config/app/settings.json"]
-colorscheme = "dracula"
-tabsize = 4
+[dotfiles."~/.vimrc"]
+_content = """
+set number
+set expandtab
+"""
 ```
 
-### After `schalentier config apply`
-
-```json
-{
-  "colorscheme": "dracula",
-  "font_size": 14,
-  "custom_setting": "preserved",
-  "tabsize": 4
-}
-```
-
-Your `font_size` and `custom_setting` are preserved. Only the specified keys are updated.
-
-### Backup & Recovery
-
-Before the first modification, schalentier creates a backup:
-
-```
-~/.config/app/settings.json.schalentier-backup
-```
-
-Restore anytime:
+Before changing a file for the first time, Schalentier creates a sibling named
+`<filename>.schalentier-backup` (for example,
+`~/.vimrc.schalentier-backup`). Restore it with:
 
 ```bash
-$ schalentier config reset "~/.config/app/settings.json"
-✓ Restored from backup
+schalentier config reset ~/.vimrc
 ```
 
----
+Set `_template = true` on a dotfile entry to use MiniJinja expressions. The
+template context contains:
 
-## Shell Setup
+- `os`, `arch`, `hostname`, `username`, and `home`;
+- `env.NAME` for environment variables;
+- `var.NAME` for values under `[variables]`;
+- `secret.NAME` for values in the encrypted secret store.
 
-`schalentier init` prompts interactively to add this for you (or use
-`--setup-shell` to do it non-interactively, or `--yes` alone to just print the
-snippet). To do it manually instead, add to your shell config:
+## Sync
 
-### Bash (`~/.bashrc`)
+Git sync operates on Schalentier's configuration directory:
 
 ```bash
-if [ -f "$HOME/.schalentier/env.sh" ]; then
-    source "$HOME/.schalentier/env.sh"
-fi
+# First machine
+schalentier sync --remote git@github.com:you/dotfiles.git --push
+
+# Another machine
+schalentier sync --remote git@github.com:you/dotfiles.git --pull
 ```
 
-### Zsh (`~/.zshrc`)
+With neither `--push` nor `--pull`, sync is bidirectional. A pull installs tools
+present in the remote config but absent from local state. Add `--prune` to also
+remove managed tools that are no longer configured.
 
-```zsh
-if [ -f "$HOME/.schalentier/env.sh" ]; then
-    source "$HOME/.schalentier/env.sh"
-fi
-```
-
-### Fish (`~/.config/fish/config.fish`)
-
-```fish
-if test -f "$HOME/.schalentier/env.fish"
-    source "$HOME/.schalentier/env.fish"
-end
-```
-
----
-
-## Comparison Table
-
-| Feature                 | Schalentier | chezmoi | mise | aqua | Homebrew |
-|-------------------------|-------------|---------|------|------|----------|
-| Install CLI tools       | ✅           | ❌       | ✅    | ✅    | ✅        |
-| Multi-provider fallback | ✅           | -       | ❌    | ❌    | ❌        |
-| Config file patching    | ✅           | ✅       | ❌    | ❌    | ❌        |
-| Git sync                | ✅           | ✅       | ❌    | ❌    | ❌        |
-| Encrypted gist sync     | ✅           | ❌       | ❌    | ❌    | ❌        |
-| Shell aliases/snippets  | ✅           | ❌       | ❌    | ❌    | ❌        |
-| Single binary           | ✅           | ✅       | ✅    | ✅    | ❌        |
-| No runtime deps         | ✅           | ✅       | ✅    | ✅    | ❌ (Ruby) |
-| Declarative config      | ✅           | ✅       | ✅    | ✅    | ❌        |
-| Tool adoption           | ✅           | -       | ❌    | ❌    | ❌        |
-
----
-
-## Philosophy
-
-1. **One file to rule them all** — Your entire setup in `schalentier.toml`
-2. **Graceful degradation** — If one provider fails, try another
-3. **Non-destructive** — Merge configs, don't replace them
-4. **Adopt, don't fight** — Detect existing tools instead of reinstalling
-5. **Static binary** — No Python, no Ruby, no Node. Just works.
-
----
-
-## Building from Source
+For Gist sync, store a GitHub token and create an encrypted Gist:
 
 ```bash
-# Clone
-git clone https://github.com/cosinusalpha/schalentier.git
-cd schalentier
-
-# Build (requires Rust)
-cargo build --release
-
-# Static musl build (Linux, fully portable)
-./build-musl.sh
+schalentier secret set GITHUB_TOKEN --tags github
+schalentier sync --remote gist://new --push
 ```
 
----
+Save the returned `gist://<id>` as `[sync].remote`, then use
+`schalentier sync --pull` on another machine. Gist payloads are encrypted with
+age; the master password is kept in the OS keyring when available, with an
+encrypted-file fallback for headless environments. Gists are secret by default;
+pass `--public` to create a public one.
 
-## Contributing
+## Other commands
 
-PRs welcome! Please run the tests:
+| Command | Purpose |
+| --- | --- |
+| `search <query>` | Search packages across available providers |
+| `remove <tool>` | Uninstall a managed tool and remove it from config |
+| `doctor [--fix]` | Diagnose the installation and optionally repair issues |
+| `audit [package]` | Query OSV.dev for known vulnerabilities |
+| `alias` | Create executable shell aliases |
+| `snippet` | Add, list, or remove shell initialization snippets |
+| `secret` | Store, list, export, edit, or inject encrypted secrets |
+| `registry` | Validate, inspect, or update the package registry |
+| `completions <shell>` | Generate shell completions |
+
+Audit results are cached for `audit_cache_ttl_hours` (24 hours by default).
+`list --security` displays cached results without making a network request.
+OSV.dev coverage currently maps Cargo to crates.io, uv to PyPI, and Go to the Go
+ecosystem; providers without an OSV ecosystem are skipped.
+
+Secrets may be tagged and exposed only to a command or subshell:
 
 ```bash
-cargo test                    # Unit tests
-./tests/smoke/run.sh          # Integration tests (requires podman/docker)
+schalentier secret set DEPLOY_TOKEN --tags deploy
+schalentier secret run --tags deploy -- ./deploy.sh
+schalentier secret shell --tags deploy
 ```
 
----
+## Shell setup
 
-## License
+`schalentier init` writes two generated environment files:
 
-MIT
+- `$HOME/.schalentier/env.sh` for Bash and Zsh;
+- `$HOME/.schalentier/env.fish` for Fish.
 
----
+They add Schalentier's bin directory and any bootstrapped Rust, Node.js, and Go
+directories to `PATH`, initialize Schalentier's Miniforge installation, and set
+`SCHALENTIER_DATA_DIR`.
 
-<p align="center">
-  <i>Stop yak-shaving your dev environment. Start building.</i>
-</p>
+During interactive initialization, Schalentier offers to source the appropriate
+file from `$HOME/.bashrc`, `$HOME/.zshrc`, or
+`$HOME/.config/fish/config.fish`. For a non-interactive setup, use:
+
+```bash
+schalentier init --yes --setup-shell
+```
+
+To activate the generated environment in the current shell immediately:
+
+```bash
+# Bash or Zsh
+source "$HOME/.schalentier/env.sh"
+
+# Fish
+source "$HOME/.schalentier/env.fish"
+```
+
+Only source the file matching your shell. New shells load it automatically once
+the integration has been added to the corresponding shell configuration.
+
+Generate completion scripts separately, for example:
+
+```bash
+schalentier completions fish > ~/.config/fish/completions/schalentier.fish
+```
+
+## Development
+
+```bash
+cargo test
+./tests/smoke/run.sh # requires Docker or Podman
+```
+
+The project is licensed under the MIT License.
