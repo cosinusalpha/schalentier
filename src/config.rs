@@ -144,7 +144,7 @@ impl Default for Settings {
 /// Sync configuration
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct SyncConfig {
-    /// Remote URL (git SSH, HTTPS, or gist://<id>)
+    /// Remote URL (git SSH, HTTPS, or `gist://<id>`)
     pub remote: Option<String>,
 
     /// Sync mode

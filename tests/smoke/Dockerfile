@@ -55,8 +55,11 @@ ENTRYPOINT ["/bin/bash", "/run_smoke_tests.sh"]
 # --- Arch Linux test stage ---
 FROM archlinux:latest AS smoke-arch
 
-RUN pacman -Syu --noconfirm && \
-    pacman -S --noconfirm ca-certificates curl git python && \
+# Initialize pacman keyring and install dependencies without a full system upgrade
+# which often breaks in older images due to partial dependency upgrades
+RUN pacman-key --init && \
+    pacman-key --populate archlinux && \
+    pacman -Sy --noconfirm ca-certificates curl git python && \
     pacman -Scc --noconfirm
 
 COPY --from=builder /build/target/release/schalentier /usr/local/bin/schalentier

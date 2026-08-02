@@ -133,7 +133,7 @@ fi
 # Test 8: Re-init without --force fails
 # Capture to variable to avoid SIGPIPE
 REINIT_OUTPUT=$(schalentier init 2>&1 || true)
-if echo "$REINIT_OUTPUT" | grep -qi "already initialized\|force"; then
+if grep -qi "already initialized\|force" <<< "$REINIT_OUTPUT"; then
     pass "Re-init without --force shows warning"
 else
     fail "Re-init protection" "Should warn about existing installation"
@@ -152,7 +152,7 @@ fi
 # Test 10: Doctor shows status
 # Note: Capture to variable to avoid SIGPIPE when grep -q closes pipe early
 DOCTOR_OUTPUT=$(schalentier doctor 2>&1)
-if echo "$DOCTOR_OUTPUT" | grep -qiE "status|initialized|bootstrap"; then
+if grep -qiE "status|initialized|bootstrap" <<< "$DOCTOR_OUTPUT"; then
     pass "Doctor shows system status"
 else
     fail "Doctor output" "No status information in output"
@@ -165,7 +165,7 @@ section "Search Tests"
 if curl -s --connect-timeout 5 https://api.github.com > /dev/null 2>&1; then
     # Capture to variable to avoid SIGPIPE
     SEARCH_OUTPUT=$(schalentier search ripgrep 2>&1)
-    if echo "$SEARCH_OUTPUT" | grep -qi "ripgrep\|rg\|BurntSushi"; then
+    if grep -qi "ripgrep\|rg\|BurntSushi" <<< "$SEARCH_OUTPUT"; then
         pass "Search finds ripgrep"
     else
         fail "Search results" "ripgrep not found in search results"
@@ -204,19 +204,19 @@ PROVIDER_DOCTOR_OUTPUT=$(schalentier doctor 2>&1)
 
 # Test 14: System provider detects package manager
 if [ -f /usr/bin/apt ] || [ -f /usr/bin/apt-get ]; then
-    if echo "$PROVIDER_DOCTOR_OUTPUT" | grep -qi "apt\|system"; then
+    if grep -qi "apt\|system" <<< "$PROVIDER_DOCTOR_OUTPUT"; then
         pass "Detects apt package manager"
     else
         skip "Apt detection" "apt exists but not detected in doctor output"
     fi
 elif [ -f /usr/bin/pacman ]; then
-    if echo "$PROVIDER_DOCTOR_OUTPUT" | grep -qi "pacman\|system"; then
+    if grep -qi "pacman\|system" <<< "$PROVIDER_DOCTOR_OUTPUT"; then
         pass "Detects pacman package manager"
     else
         skip "Pacman detection" "pacman exists but not detected"
     fi
 elif [ -f /sbin/apk ]; then
-    if echo "$PROVIDER_DOCTOR_OUTPUT" | grep -qi "apk\|system"; then
+    if grep -qi "apk\|system" <<< "$PROVIDER_DOCTOR_OUTPUT"; then
         pass "Detects apk package manager"
     else
         skip "Apk detection" "apk exists but not detected"
@@ -266,7 +266,7 @@ git config --global init.defaultBranch main 2>/dev/null || true
 
 # Test 19: Sync initializes git repo
 SYNC_OUTPUT=$(schalentier sync 2>&1)
-if echo "$SYNC_OUTPUT" | grep -qi "initialized\|repository\|set up remote"; then
+if grep -qi "initialized\|repository\|set up remote" <<< "$SYNC_OUTPUT"; then
     pass "Sync initializes git repository"
 else
     fail "Sync git init" "Should initialize git repo or prompt for remote"
@@ -283,7 +283,7 @@ fi
 mkdir -p /tmp/test-remote.git
 cd /tmp/test-remote.git && git init --bare 2>/dev/null
 SYNC_REMOTE_OUTPUT=$(schalentier sync --remote /tmp/test-remote.git 2>&1)
-if echo "$SYNC_REMOTE_OUTPUT" | grep -qi "push\|pull\|sync complete\|remote"; then
+if grep -qi "push\|pull\|sync complete\|remote" <<< "$SYNC_REMOTE_OUTPUT"; then
     pass "Sync with remote works"
 else
     fail "Sync with remote" "Should sync with remote repository"
@@ -334,8 +334,8 @@ GISTCFG
 
         # Push: create a new gist and capture its id.
         GIST_PUSH=$(schalentier sync --remote gist://new --push 2>&1 || true)
-        GID=$(echo "$GIST_PUSH" | grep -oE "gist://mock[0-9]+" | head -1)
-        if echo "$GIST_PUSH" | grep -qi "created secret gist" && [ -n "$GID" ]; then
+        GID=$(grep -oE "gist://mock[0-9]+" <<< "$GIST_PUSH" | head -1)
+        if grep -qi "created secret gist" <<< "$GIST_PUSH" && [ -n "$GID" ]; then
             pass "Gist push creates a new gist"
         else
             fail "Gist push" "Expected 'Created secret gist', got: $GIST_PUSH"
@@ -344,12 +344,12 @@ GISTCFG
         # The mock stores ciphertext; confirm the pushed content is NOT plaintext.
         if [ -n "$GID" ]; then
             RAW=$(curl -s "http://127.0.0.1:8099/gists/${GID#gist://}" || true)
-            if echo "$RAW" | grep -q "BEGIN AGE ENCRYPTED FILE"; then
+            if grep -q "BEGIN AGE ENCRYPTED FILE" <<< "$RAW"; then
                 pass "Gist content is age-encrypted"
             else
                 fail "Gist encryption" "Pushed gist content is not age-encrypted"
             fi
-            if echo "$RAW" | grep -q "GIST_ROUNDTRIP"; then
+            if grep -q "GIST_ROUNDTRIP" <<< "$RAW"; then
                 fail "Gist encryption" "Plaintext config leaked into gist!"
             else
                 pass "Gist does not leak plaintext config"
@@ -362,7 +362,7 @@ GISTCFG
             mkdir -p ~/.config/schalentier
             schalentier secret set GITHUB_TOKEN --value ghp_fake_smoke > /dev/null 2>&1
             GIST_PULL=$(schalentier sync --remote "$GID" --pull 2>&1 || true)
-            if echo "$GIST_PULL" | grep -qi "downloaded and decrypted"; then
+            if grep -qi "downloaded and decrypted" <<< "$GIST_PULL"; then
                 pass "Gist pull downloads and decrypts config"
             else
                 fail "Gist pull" "Expected 'Downloaded and decrypted', got: $GIST_PULL"
@@ -384,7 +384,7 @@ section "Add/Install Tests"
 
 # Test 22: Add with --no-install adds to config only
 ADD_NOINSTALL_OUTPUT=$(schalentier add testpkg --no-install 2>&1)
-if echo "$ADD_NOINSTALL_OUTPUT" | grep -qi "added.*config\|not installed"; then
+if grep -qi "added.*config\|not installed" <<< "$ADD_NOINSTALL_OUTPUT"; then
     pass "Add --no-install adds to config"
 else
     fail "Add --no-install" "Should add to config without installing"
@@ -399,7 +399,7 @@ fi
 
 # Test 24: Remove tool from config
 REMOVE_OUTPUT=$(schalentier remove testpkg 2>&1 || true)
-if echo "$REMOVE_OUTPUT" | grep -qi "removed\|not found\|not installed"; then
+if grep -qi "removed\|not found\|not installed" <<< "$REMOVE_OUTPUT"; then
     pass "Remove command works"
 else
     fail "Remove command" "Should remove or report tool status"
@@ -439,7 +439,7 @@ section "Update Tests"
 
 # Test 25: Update command runs (dry-run)
 UPDATE_OUTPUT=$(schalentier update --dry-run 2>&1)
-if echo "$UPDATE_OUTPUT" | grep -qi "update\|check\|no.*update\|up.to.date"; then
+if grep -qi "update\|check\|no.*update\|up.to.date" <<< "$UPDATE_OUTPUT"; then
     pass "Update --dry-run works"
 else
     fail "Update dry-run" "Should check for updates"
@@ -454,7 +454,7 @@ if schalentier alias --help 2>&1 | grep -qi "alias\|usage\|help"; then
 
     # Test 27: Create alias
     ALIAS_CREATE=$(schalentier alias ll="ls -la" 2>&1 || true)
-    if echo "$ALIAS_CREATE" | grep -qi "created\|alias"; then
+    if grep -qi "created\|alias" <<< "$ALIAS_CREATE"; then
         pass "Alias creation works"
     else
         fail "Alias creation" "Should create alias script"
@@ -469,7 +469,7 @@ if schalentier alias --help 2>&1 | grep -qi "alias\|usage\|help"; then
 
     # Test 29: Alias --list shows aliases
     ALIAS_LIST=$(schalentier alias --list 2>&1 || true)
-    if echo "$ALIAS_LIST" | grep -qi "ll"; then
+    if grep -qi "ll" <<< "$ALIAS_LIST"; then
         pass "Alias --list shows aliases"
     else
         fail "Alias list" "Should list created aliases"
@@ -499,7 +499,7 @@ if schalentier snippet --help 2>&1 | grep -qi "snippet\|usage\|help"; then
 
     # Test 32: Snippet list (should be empty initially)
     SNIPPET_LIST=$(schalentier snippet list 2>&1 || true)
-    if echo "$SNIPPET_LIST" | grep -qi "no snippet\|empty\|snippet"; then
+    if grep -qi "no snippet\|empty\|snippet" <<< "$SNIPPET_LIST"; then
         pass "Snippet list works"
     else
         fail "Snippet list" "Should list snippets or show empty"
@@ -507,7 +507,7 @@ if schalentier snippet --help 2>&1 | grep -qi "snippet\|usage\|help"; then
 
     # Test 33: Snippet add from registry
     SNIPPET_ADD=$(schalentier snippet add yazi 2>&1 || true)
-    if echo "$SNIPPET_ADD" | grep -qi "added\|installed\|snippet\|yazi"; then
+    if grep -qi "added\|installed\|snippet\|yazi" <<< "$SNIPPET_ADD"; then
         pass "Snippet add works"
     else
         fail "Snippet add" "Should add snippet from registry"
@@ -522,7 +522,7 @@ if schalentier snippet --help 2>&1 | grep -qi "snippet\|usage\|help"; then
 
     # Test 35: Snippet remove works
     SNIPPET_REMOVE=$(schalentier snippet remove yazi 2>&1 || true)
-    if echo "$SNIPPET_REMOVE" | grep -qi "removed\|deleted\|snippet"; then
+    if grep -qi "removed\|deleted\|snippet" <<< "$SNIPPET_REMOVE"; then
         pass "Snippet remove works"
     else
         fail "Snippet remove" "Should remove snippet"
@@ -545,7 +545,7 @@ mkdir -p "$TEST_DOTFILES_DIR"
 
 # Test: Config command exists
 CONFIG_HELP=$(schalentier config --help 2>&1 || true)
-if echo "$CONFIG_HELP" | grep -qi "apply.*diff\|diff.*apply\|dotfile\|patch"; then
+if grep -qi "apply.*diff\|diff.*apply\|dotfile\|patch" <<< "$CONFIG_HELP"; then
     pass "Config command exists"
 else
     fail "Config command exists" "schalentier config --help failed"
@@ -553,7 +553,7 @@ fi
 
 # Test: Config list works
 CONFIG_LIST=$(schalentier config list 2>&1 || true)
-if echo "$CONFIG_LIST" | grep -qi "dotfile\|managed\|no.*config\|empty\|list"; then
+if grep -qi "dotfile\|managed\|no.*config\|empty\|list" <<< "$CONFIG_LIST"; then
     pass "Config list works"
 else
     fail "Config list" "Should list managed dotfiles or show empty"
@@ -594,7 +594,7 @@ TESTCFG
 
 # Test: Config diff (dry-run) shows changes
 CONFIG_DIFF=$(schalentier config diff 2>&1 || true)
-if echo "$CONFIG_DIFF" | grep -qi "test.json\|would\|change\|diff\|create"; then
+if grep -qi "test.json\|would\|change\|diff\|create" <<< "$CONFIG_DIFF"; then
     pass "Config diff shows pending changes"
 else
     fail "Config diff" "Should show what would be changed"
@@ -602,7 +602,7 @@ fi
 
 # Test: Config apply creates/updates files
 CONFIG_APPLY=$(schalentier config apply 2>&1 || true)
-if echo "$CONFIG_APPLY" | grep -qi "applied\|updated\|created\|patched"; then
+if grep -qi "applied\|updated\|created\|patched" <<< "$CONFIG_APPLY"; then
     pass "Config apply works"
 else
     fail "Config apply" "Should apply dotfile patches"
@@ -700,7 +700,7 @@ fi
 
 # Test: Config reset command exists
 CONFIG_RESET=$(schalentier config reset --help 2>&1 || true)
-if echo "$CONFIG_RESET" | grep -qi "restore.*backup\|backup.*restore\|reset.*file"; then
+if grep -qi "restore.*backup\|backup.*restore\|reset.*file" <<< "$CONFIG_RESET"; then
     pass "Config reset command exists"
 else
     fail "Config reset" "Config reset command not found"
@@ -718,7 +718,7 @@ if [ -z "${SCHALENTIER_MASTER_PASSWORD:-}" ]; then
 else
     # Test: secret set (non-interactive via --value)
     SECRET_SET=$(schalentier secret set SMOKE_TOKEN --value "s3cr3t-value" --tags smoke,ci 2>&1 || true)
-    if echo "$SECRET_SET" | grep -qi "saved\|added"; then
+    if grep -qi "saved\|added" <<< "$SECRET_SET"; then
         pass "Secret set stores a value"
     else
         fail "Secret set" "Expected 'saved' confirmation, got: $SECRET_SET"
@@ -748,7 +748,7 @@ else
 
     # Test: secret list shows the name
     SECRET_LIST=$(schalentier secret list 2>&1 || true)
-    if echo "$SECRET_LIST" | grep -q "SMOKE_TOKEN"; then
+    if grep -q "SMOKE_TOKEN" <<< "$SECRET_LIST"; then
         pass "Secret list shows secret name"
     else
         fail "Secret list" "SMOKE_TOKEN not listed"
@@ -756,7 +756,7 @@ else
 
     # Test: secret export emits a valid bash export line
     SECRET_EXPORT=$(schalentier secret export --shell bash 2>&1 || true)
-    if echo "$SECRET_EXPORT" | grep -q 'export SMOKE_TOKEN="s3cr3t-value"'; then
+    if grep -q 'export SMOKE_TOKEN="s3cr3t-value"' <<< "$SECRET_EXPORT"; then
         pass "Secret export emits bash syntax"
     else
         fail "Secret export" "Missing/incorrect export line: $SECRET_EXPORT"
@@ -764,7 +764,7 @@ else
 
     # Test: secret run injects the secret into the child environment
     SECRET_RUN=$(schalentier secret run -- bash -c 'echo $SMOKE_TOKEN' 2>/dev/null || true)
-    if echo "$SECRET_RUN" | grep -q "s3cr3t-value"; then
+    if grep -q "s3cr3t-value" <<< "$SECRET_RUN"; then
         pass "Secret run injects env var"
     else
         fail "Secret run" "SMOKE_TOKEN not in child env: '$SECRET_RUN'"
@@ -773,7 +773,7 @@ else
     # Test: tag filtering excludes non-matching secrets
     schalentier secret set OTHER_TOKEN --value "other" --tags prod > /dev/null 2>&1 || true
     SECRET_TAGGED=$(schalentier secret export --tags smoke 2>&1 || true)
-    if echo "$SECRET_TAGGED" | grep -q "SMOKE_TOKEN" && ! echo "$SECRET_TAGGED" | grep -q "OTHER_TOKEN"; then
+    if grep -q "SMOKE_TOKEN" <<< "$SECRET_TAGGED" && ! grep -q "OTHER_TOKEN" <<< "$SECRET_TAGGED"; then
         pass "Secret export --tags filters by tag"
     else
         fail "Secret tag filter" "Tag filtering did not work as expected"
@@ -793,7 +793,7 @@ section "Registry Tests"
 
 # Test: registry validate (offline, bundled registry)
 REGISTRY_VALIDATE=$(schalentier registry validate 2>&1 || true)
-if echo "$REGISTRY_VALIDATE" | grep -qi "valid\|package count"; then
+if grep -qi "valid\|package count" <<< "$REGISTRY_VALIDATE"; then
     pass "Registry validate passes"
 else
     fail "Registry validate" "Bundled registry did not validate: $REGISTRY_VALIDATE"
@@ -801,7 +801,7 @@ fi
 
 # Test: registry info shows stats
 REGISTRY_INFO=$(schalentier registry info 2>&1 || true)
-if echo "$REGISTRY_INFO" | grep -qi "total packages\|packages by provider"; then
+if grep -qi "total packages\|packages by provider" <<< "$REGISTRY_INFO"; then
     pass "Registry info shows statistics"
 else
     fail "Registry info" "No statistics in output"
@@ -812,7 +812,7 @@ section "Multi-Provider Resolution Tests"
 
 # Test: add --dry-run for a registry package shows providers, installs nothing
 ADD_DRYRUN=$(schalentier add ripgrep --dry-run 2>&1 || true)
-if echo "$ADD_DRYRUN" | grep -qi "available in.*provider\|dry run.*would install"; then
+if grep -qi "available in.*provider\|dry run.*would install" <<< "$ADD_DRYRUN"; then
     pass "Add --dry-run shows provider resolution"
 else
     fail "Add --dry-run" "Expected provider list / dry-run notice: $ADD_DRYRUN"
@@ -828,7 +828,7 @@ fi
 # Test: dry-run for a NON-registry package must also install nothing (regression:
 # cmd_add_legacy previously ignored --dry-run and actually installed).
 ADD_DRYRUN_LEGACY=$(schalentier add zzz-nonexistent-smoke-pkg --dry-run 2>&1 || true)
-if echo "$ADD_DRYRUN_LEGACY" | grep -qi "dry run"; then
+if grep -qi "dry run" <<< "$ADD_DRYRUN_LEGACY"; then
     pass "Add --dry-run works for non-registry packages"
 else
     fail "Add --dry-run (legacy path)" "Non-registry dry-run did not short-circuit: $ADD_DRYRUN_LEGACY"
@@ -839,7 +839,7 @@ section "Security Audit Tests (OSV.dev)"
 
 # Test: audit command runs with no installed packages
 AUDIT_EMPTY=$(schalentier audit 2>&1 || true)
-if echo "$AUDIT_EMPTY" | grep -qi "no packages to audit\|running security audit"; then
+if grep -qi "no packages to audit\|running security audit" <<< "$AUDIT_EMPTY"; then
     pass "Audit runs (empty state)"
 else
     fail "Audit empty" "Unexpected output: $AUDIT_EMPTY"
@@ -850,7 +850,7 @@ if curl -s --connect-timeout 5 https://api.osv.dev > /dev/null 2>&1; then
     # black 21.12b0 has known advisories in the PyPI ecosystem.
     schalentier add black --no-install > /dev/null 2>&1 || true
     AUDIT_BLACK=$(schalentier audit black 2>&1 || true)
-    if echo "$AUDIT_BLACK" | grep -qi "advisor\|vulnerab\|clean\|skipped"; then
+    if grep -qi "advisor\|vulnerab\|clean\|skipped" <<< "$AUDIT_BLACK"; then
         pass "Audit queries OSV.dev for a package"
     else
         fail "Audit package" "No recognizable audit output: $AUDIT_BLACK"
@@ -872,7 +872,7 @@ if curl -s --connect-timeout 5 https://api.osv.dev > /dev/null 2>&1; then
 
         # Test: --refresh bypasses the cache and re-queries OSV.dev.
         REFRESH_OUT=$(schalentier audit black --refresh 2>&1 || true)
-        if echo "$REFRESH_OUT" | grep -qi "advisor\|vulnerab\|clean\|skipped"; then
+        if grep -qi "advisor\|vulnerab\|clean\|skipped" <<< "$REFRESH_OUT"; then
             pass "Audit --refresh bypasses cache"
         else
             fail "Audit --refresh" "Unexpected output: $REFRESH_OUT"
@@ -1008,7 +1008,7 @@ section "Provider Selection Tests"
 # Requesting an unavailable/unknown provider for a registry package should fail
 # clearly rather than silently installing via another provider.
 PROV_ERR=$(schalentier add ripgrep --provider nonexistentprovider --dry-run 2>&1 || true)
-if echo "$PROV_ERR" | grep -qiE "not available|unknown|available:|provider"; then
+if grep -qiE "not available|unknown|available:|provider" <<< "$PROV_ERR"; then
     pass "Add with unavailable provider reports clearly"
 else
     fail "Provider selection" "Unexpected output for bad provider: $PROV_ERR"
@@ -1020,7 +1020,7 @@ section "Completions Tests"
 # Test: completions generate for each supported shell
 for sh in bash zsh fish; do
     COMP_OUT=$(schalentier completions $sh 2>&1 || true)
-    if echo "$COMP_OUT" | grep -qi "schalentier"; then
+    if grep -qi "schalentier" <<< "$COMP_OUT"; then
         pass "Completions generate for $sh"
     else
         fail "Completions $sh" "No completion output for $sh"
@@ -1040,7 +1040,7 @@ fi
 # Test 37: Add without name shows error
 # Capture to variable to avoid SIGPIPE and handle non-zero exit
 ADD_OUTPUT=$(schalentier add 2>&1 || true)
-if echo "$ADD_OUTPUT" | grep -qi "required\|missing\|argument"; then
+if grep -qi "required\|missing\|argument" <<< "$ADD_OUTPUT"; then
     pass "Add without name shows error"
 else
     fail "Add argument validation" "Should show missing argument error"

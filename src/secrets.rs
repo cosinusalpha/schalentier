@@ -184,7 +184,7 @@ pub const MASTER_PASSWORD_ENV: &str = "SCHALENTIER_MASTER_PASSWORD";
 ///
 /// Resolution order:
 /// 1. `SCHALENTIER_MASTER_PASSWORD` env var, if set (never touches the keyring).
-/// 2. The OS keyring (or its local fallback store, see [`open_keyring_entry`]).
+/// 2. The OS keyring (or its local fallback store, see `open_keyring_entry`).
 /// 3. On first use with neither, prompt via `inquire::Password` and cache in the keyring.
 pub fn get_or_create_master_password() -> Result<SecretString> {
     if let Ok(password) = std::env::var(MASTER_PASSWORD_ENV) {
